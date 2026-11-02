@@ -15,6 +15,9 @@ internal object ApiClient {
     fun heartbeat(deviceId: String, token: String, body: JSONObject): JSONObject =
         request("POST", "/v1/devices/$deviceId/heartbeat", body, token)
 
+    fun registerFcmToken(deviceId: String, childToken: String, fcmToken: String): JSONObject =
+        request("POST", "/v1/devices/$deviceId/fcm-token", JSONObject().put("token", fcmToken), childToken)
+
     private fun request(method: String, path: String, body: JSONObject?, bearer: String?): JSONObject {
         val connection = (URL(BASE_URL + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method

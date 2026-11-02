@@ -19,7 +19,7 @@ The function uses the project's server-side secret key only inside the Edge Func
 The production function and database migrations are deployed to project ref `wreilawyquhhbvkkgmfy`. The migration SQL is retained in `supabase/migrations/`. The Android parent and child clients target the function URL above.
 
 ## Current scope and limitations
-This milestone implements device pairing only. It does not yet implement location, app usage, camera, microphone, screen-sharing, WebRTC signaling, token rotation/revocation, or full parent account authentication. Those capabilities must be added as separate, consent-based features with visible Android permissions and controls.
+This milestone implements device pairing, foreground device-status heartbeats, and child-initiated one-time location sharing. It does not yet implement app-usage reporting, camera, microphone, screen-sharing, WebRTC signaling, token rotation/revocation, or full parent account authentication. Those capabilities must be added as separate, consent-based features with visible Android permissions and controls.
 
 
 ## Device status and one-time location

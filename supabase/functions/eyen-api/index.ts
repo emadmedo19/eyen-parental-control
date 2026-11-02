@@ -164,6 +164,111 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+
+    const locationRequestMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/location-requests$/i);
+    if (req.method === "POST" && locationRequestMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      if (await limited("location-request:" + locationRequestMatch[1], 6)) return reply(429, { error: "rate_limited" });
+      const { data: device, error: deviceError } = await db.from("pairing_sessions")
+        .select("child_device_id")
+        .eq("child_device_id", locationRequestMatch[1])
+        .eq("poll_token_hash", await digest(bearer))
+        .not("claimed_at", "is", null)
+        .maybeSingle();
+      if (deviceError) throw deviceError;
+      if (!device) return reply(404, { error: "device_not_found" });
+      await db.from("device_commands").update({ status: "expired" })
+        .eq("child_device_id", locationRequestMatch[1]).eq("status", "pending")
+        .lt("expires_at", new Date().toISOString());
+      const { data: command, error } = await db.from("device_commands").insert({
+        child_device_id: locationRequestMatch[1], command_type: "LOCATION_REQUEST",
+        expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      }).select("id, expires_at").single();
+      if (error) throw error;
+      return reply(201, { requestId: command.id, expiresAt: command.expires_at, status: "pending" });
+    }
+
+    const childCommandsMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/commands$/i);
+    if (req.method === "GET" && childCommandsMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: device, error: deviceError } = await db.from("pairing_sessions")
+        .select("child_device_id").eq("child_device_id", childCommandsMatch[1])
+        .eq("child_token_hash", await digest(bearer)).not("claimed_at", "is", null).maybeSingle();
+      if (deviceError) throw deviceError;
+      if (!device) return reply(401, { error: "device_token_invalid" });
+      const now = new Date().toISOString();
+      await db.from("device_commands").update({ status: "expired" })
+        .eq("child_device_id", childCommandsMatch[1]).eq("status", "pending").lt("expires_at", now);
+      const { data: command, error } = await db.from("device_commands")
+        .select("id, command_type, expires_at")
+        .eq("child_device_id", childCommandsMatch[1]).eq("status", "pending")
+        .gt("expires_at", now).order("created_at", { ascending: true }).limit(1).maybeSingle();
+      if (error) throw error;
+      if (!command) return reply(200, { command: null });
+      const { error: claimError } = await db.from("device_commands")
+        .update({ status: "claimed", claimed_at: now }).eq("id", command.id).eq("status", "pending");
+      if (claimError) throw claimError;
+      return reply(200, { command: { id: command.id, type: command.command_type, expiresAt: command.expires_at } });
+    }
+
+    const commandResultMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/commands\/([0-9a-f-]+)\/result$/i);
+    if (req.method === "POST" && commandResultMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: device, error: deviceError } = await db.from("pairing_sessions")
+        .select("child_device_id").eq("child_device_id", commandResultMatch[1])
+        .eq("child_token_hash", await digest(bearer)).not("claimed_at", "is", null).maybeSingle();
+      if (deviceError) throw deviceError;
+      if (!device) return reply(401, { error: "device_token_invalid" });
+      const body = await req.json().catch(() => ({}));
+      const ok = body?.status === "completed" &&
+        typeof body?.latitude === "number" && Number.isFinite(body.latitude) && body.latitude >= -90 && body.latitude <= 90 &&
+        typeof body?.longitude === "number" && Number.isFinite(body.longitude) && body.longitude >= -180 && body.longitude <= 180;
+      const result = ok ? {
+        latitude: body.latitude, longitude: body.longitude,
+        accuracyMeters: typeof body.accuracyMeters === "number" ? body.accuracyMeters : null,
+        updatedAt: new Date().toISOString(),
+      } : null;
+      const { data: command, error } = await db.from("device_commands").update({
+        status: ok ? "completed" : "failed", completed_at: new Date().toISOString(), result,
+      }).eq("id", commandResultMatch[2]).eq("child_device_id", commandResultMatch[1])
+        .eq("status", "claimed").select("id").maybeSingle();
+      if (error) throw error;
+      if (!command) return reply(404, { error: "command_not_found_or_expired" });
+      if (ok) {
+        const { error: locationError } = await db.from("pairing_sessions").update({
+          location_lat: body.latitude, location_lon: body.longitude,
+          location_accuracy_m: typeof body.accuracyMeters === "number" ? body.accuracyMeters : null,
+          location_updated_at: new Date().toISOString(), last_seen_at: new Date().toISOString(),
+        }).eq("child_device_id", commandResultMatch[1]).eq("child_token_hash", await digest(bearer));
+        if (locationError) throw locationError;
+      }
+      return reply(200, { ok: true });
+    }
+
+    const parentCommandMatch = path.match(/^\/v1\/location-requests\/([0-9a-f-]+)$/i);
+    if (req.method === "GET" && parentCommandMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: command, error } = await db.from("device_commands")
+        .select("id, child_device_id, status, expires_at, result")
+        .eq("id", parentCommandMatch[1]).maybeSingle();
+      if (error) throw error;
+      if (!command) return reply(404, { error: "request_not_found" });
+      const { data: device, error: deviceError } = await db.from("pairing_sessions")
+        .select("child_device_id").eq("child_device_id", command.child_device_id)
+        .eq("poll_token_hash", await digest(bearer)).not("claimed_at", "is", null).maybeSingle();
+      if (deviceError) throw deviceError;
+      if (!device) return reply(404, { error: "request_not_found" });
+      return reply(200, { requestId: command.id, status: command.status, expiresAt: command.expires_at, location: command.result });
+    }
+
     return reply(404, { error: "not_found" });
   } catch (error) {
     console.error("eyen_api_error", error);

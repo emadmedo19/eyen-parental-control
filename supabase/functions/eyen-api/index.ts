@@ -35,6 +35,76 @@ async function digest(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+function base64Url(bytes: Uint8Array) {
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function pemBytes(pem: string) {
+  const raw = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g, "");
+  return Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
+}
+async function sendFcmData(token: string, data: Record<string, string>) {
+  const raw = Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
+  if (!raw) return { sent: false, reason: "credentials_not_configured" };
+  const account = JSON.parse(raw);
+  if (!account.project_id || !account.client_email || !account.private_key) {
+    throw new Error("FCM service account JSON is missing required fields.");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const header = base64Url(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const claim = base64Url(new TextEncoder().encode(JSON.stringify({
+    iss: account.client_email,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  })));
+  const unsigned = header + "." + claim;
+  const key = await crypto.subtle.importKey(
+    "pkcs8", pemBytes(account.private_key),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(unsigned),
+  ));
+  const assertion = unsigned + "." + base64Url(signature);
+  const oauth = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  const oauthBody = await oauth.json().catch(() => ({}));
+  if (!oauth.ok || typeof oauthBody.access_token !== "string") {
+    throw new Error("FCM OAuth token request failed.");
+  }
+  const push = await fetch(
+    "https://fcm.googleapis.com/v1/projects/" + account.project_id + "/messages:send",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + oauthBody.access_token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: {
+          token,
+          data,
+          android: { priority: "high", ttl: "120s" },
+        },
+      }),
+    },
+  );
+  if (!push.ok) {
+    const detail = await push.text();
+    console.error("FCM delivery failed:", push.status, detail.slice(0, 500));
+    return { sent: false, reason: "fcm_delivery_failed" };
+  }
+  return { sent: true };
+}
+
 async function limited(key: string, max: number) {
   const { data, error } = await db.rpc("consume_eyen_rate_limit", {
     p_key_hash: await digest("rate:" + key),
@@ -192,7 +262,7 @@ Deno.serve(async (req: Request) => {
       if (!bearer) return reply(401, { error: "unauthorized" });
       if (await limited("location-request:" + locationRequestMatch[1], 6)) return reply(429, { error: "rate_limited" });
       const { data: device, error: deviceError } = await db.from("pairing_sessions")
-        .select("child_device_id")
+        .select("child_device_id, fcm_token")
         .eq("child_device_id", locationRequestMatch[1])
         .eq("poll_token_hash", await digest(bearer))
         .not("claimed_at", "is", null)
@@ -207,7 +277,18 @@ Deno.serve(async (req: Request) => {
         expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
       }).select("id, expires_at").single();
       if (error) throw error;
-      return reply(201, { requestId: command.id, expiresAt: command.expires_at, status: "pending" });
+      let push = { sent: false, reason: "device_has_no_fcm_token" };
+      if (device.fcm_token) {
+        push = await sendFcmData(device.fcm_token, {
+          type: "LOCATION_REQUEST",
+          requestId: command.id,
+          deviceId: locationRequestMatch[1],
+        });
+      }
+      return reply(201, {
+        requestId: command.id, expiresAt: command.expires_at, status: "pending",
+        push,
+      });
     }
 
     const childCommandsMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/commands$/i);

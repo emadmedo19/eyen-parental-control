@@ -13,11 +13,11 @@
 - API uses PostgreSQL; code and bearer secrets are stored as peppered SHA-256 digests.
 - See `server/db/001_pairing.sql` and `server/src/server.js`.
 
-## Next milestones
+## Implemented second slice\n- Parent dashboard can refresh a paired device's last-seen time, battery percentage and charging state.\n- Child app sends a heartbeat once per minute only while the app is in the foreground.\n- Child can explicitly share a one-time current location after an in-app explanation and Android runtime permission. The location is not collected in the background.\n- Parent can open the last shared location in a maps app.\n\n## Next milestones
 - M0: confirm exact OPPO/Infinix models and Android versions.
 - M1: deploy API and validate pairing on two real devices over different networks.
 - M2: add parent/child accounts, token rotation, revocation and audit history.
-- M3: location and usage summaries with user-visible permissions.
+- M3: optional app-usage summaries with a visible Usage Access settings flow and clear disclosure.
 - M4: time limits and app restrictions using supported Android APIs.
 - M5: visible camera/microphone sessions and MediaProjection screen sharing.
 - M6: WebRTC signaling, TURN fallback, reconnect and security testing.

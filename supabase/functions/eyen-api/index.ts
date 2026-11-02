@@ -107,7 +107,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const fcmTokenMatch = path.match(/^\\/v1\\/devices\\/([0-9a-f-]+)\\/fcm-token$/i);
+    const fcmTokenMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/fcm-token$/i);
     if (req.method === "POST" && fcmTokenMatch) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
         ? req.headers.get("authorization")!.slice(7) : "";

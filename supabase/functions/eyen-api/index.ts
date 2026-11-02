@@ -78,7 +78,7 @@ Deno.serve(async (req: Request) => {
       const body = await req.json().catch(() => ({}));
       const code = String(body?.code ?? "").trim();
       const deviceName = String(body?.deviceName ?? "Android device").trim().slice(0, 80);
-      if (!/^\\d{6}$/.test(code)) return reply(400, { error: "invalid_code_format" });
+      if (!/^\d{6}$/.test(code)) return reply(400, { error: "invalid_code_format" });
       const childDeviceId = crypto.randomUUID();
       const childToken = randomToken();
       const { data, error } = await db.from("pairing_sessions").update({
@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
       if (!data) return reply(404, { error: "code_invalid_or_expired" });
       return reply(200, { paired: true, childDeviceId, childToken });
     }
-    const match = path.match(/^\\/v1\\/pairing-sessions\\/([0-9a-f-]+)$/i);
+    const match = path.match(/^\/v1\/pairing-sessions\/([0-9a-f-]+)$/i);
     if (req.method === "GET" && match) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
         ? req.headers.get("authorization")!.slice(7) : "";

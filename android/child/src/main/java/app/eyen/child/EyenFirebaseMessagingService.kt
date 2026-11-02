@@ -7,8 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
@@ -42,17 +40,17 @@ class EyenFirebaseMessagingService : FirebaseMessagingService() {
                     .apply { description = "تنبيهات طلبات ولي الأمر التي تحتاج موافقة الطفل" },
             )
         }
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = android.app.Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_map)
             .setContentTitle("طلب مشاركة الموقع")
             .setContentText("ولي الأمر طلب موقعك. اضغط للمراجعة والموافقة أو الرفض.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("لن تتم مشاركة موقعك إلا بعد فتح الطلب والموافقة عليه."))
+            .setStyle(android.app.Notification.BigTextStyle().bigText("لن تتم مشاركة موقعك إلا بعد فتح الطلب والموافقة عليه."))
             .setContentIntent(pending)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(android.app.Notification.CATEGORY_STATUS)
             .build()
         try {
-            NotificationManagerCompat.from(this).notify(requestId.hashCode(), notification)
+            manager.notify(requestId.hashCode(), notification)
         } catch (error: SecurityException) {
             Log.w("EyenFCM", "Notification permission is not granted", error)
         }

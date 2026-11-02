@@ -38,7 +38,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - run: gradle --no-daemon :parent:assembleDebug :child:assembleDebug
+      - name: Build debug APKs (CI and pull requests)
+        run: gradle --no-daemon :parent:assembleDebug :child:assembleDebug
         working-directory: android
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
@@ -49,3 +50,31 @@ jobs:
             android/child/build/outputs/apk/debug/child-debug.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Prepare Android signing key
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" > /tmp/eyen-keystore-base64.txt
+          sed '/-----BEGIN CERTIFICATE-----/d; /-----END CERTIFICATE-----/d' /tmp/eyen-keystore-base64.txt | tr -d '\r\n ' | base64 --decode > "$RUNNER_TEMP/eyen-release.jks"
+          test -s "$RUNNER_TEMP/eyen-release.jks"
+      - name: Build signed release APKs
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/eyen-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle --no-daemon :parent:assembleRelease :child:assembleRelease
+        working-directory: android
+      - name: Upload signed release APKs
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eyen-signed-release-apks
+          path: |
+            android/parent/build/outputs/apk/release/parent-release.apk
+            android/child/build/outputs/apk/release/child-release.apk
+          if-no-files-found: error
+          retention-days: 30

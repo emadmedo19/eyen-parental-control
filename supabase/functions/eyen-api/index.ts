@@ -40,7 +40,7 @@ function base64Url(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 function pemBytes(pem: string) {
-  const raw = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g, "");
+  const raw = pem.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, "");
   return Uint8Array.from(atob(raw), (ch) => ch.charCodeAt(0));
 }
 async function sendFcmData(token: string, data: Record<string, string>) {

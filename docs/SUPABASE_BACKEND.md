@@ -20,3 +20,13 @@ The production function and database migrations are deployed to project ref `wre
 
 ## Current scope and limitations
 This milestone implements device pairing only. It does not yet implement location, app usage, camera, microphone, screen-sharing, WebRTC signaling, token rotation/revocation, or full parent account authentication. Those capabilities must be added as separate, consent-based features with visible Android permissions and controls.
+
+
+## Device status and one-time location
+The `eyen-api` function also supports:
+- `POST /v1/devices/:deviceId/heartbeat` — child-device bearer token; stores last-seen time, battery percentage and charging state.
+- `GET /v1/devices/:deviceId/status` — parent polling token; returns the paired device's status and any location the child explicitly shared.
+
+The child app sends battery/last-seen heartbeats while its screen is open. Location is **not tracked in the background**: the child must tap “مشاركة موقعي الآن”, accept the in-app explanation, and grant Android's location permission. Each action sends a one-time location fix. The parent can open the last shared fix in a maps app.
+
+The status/location columns are added by migration `20261102154904_add_eyen_device_status_and_location.sql`.

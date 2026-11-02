@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: eyen-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: feature/device-pairing
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: TOKEN_PEPPER
+        generateValue: true
+      - key: PGSSLMODE
+        value: require

@@ -106,6 +106,26 @@ Deno.serve(async (req: Request) => {
         childDeviceId: data.child_device_id, childDeviceName: data.child_device_name,
       });
     }
+
+    const fcmTokenMatch = path.match(/^\\/v1\\/devices\\/([0-9a-f-]+)\\/fcm-token$/i);
+    if (req.method === "POST" && fcmTokenMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      if (await limited("fcm-token:" + fcmTokenMatch[1], 10)) return reply(429, { error: "rate_limited" });
+      const body = await req.json().catch(() => ({}));
+      const token = typeof body?.token === "string" ? body.token.trim() : "";
+      if (token.length < 40 || token.length > 4096) return reply(400, { error: "invalid_fcm_token" });
+      const { data, error } = await db.from("pairing_sessions").update({ fcm_token: token })
+        .eq("child_device_id", fcmTokenMatch[1])
+        .eq("child_token_hash", await digest(bearer))
+        .not("claimed_at", "is", null)
+        .select("child_device_id").maybeSingle();
+      if (error) throw error;
+      if (!data) return reply(401, { error: "device_token_invalid" });
+      return reply(200, { ok: true });
+    }
+
     const heartbeatMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/heartbeat$/i);
     if (req.method === "POST" && heartbeatMatch) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ")

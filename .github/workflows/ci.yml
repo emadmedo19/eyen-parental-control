@@ -36,3 +36,12 @@ jobs:
           gradle-version: "8.9"
       - run: gradle --no-daemon :parent:assembleDebug :child:assembleDebug
         working-directory: android
+      - name: Upload debug APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: eyen-debug-apks
+          path: |
+            android/parent/build/outputs/apk/debug/parent-debug.apk
+            android/child/build/outputs/apk/debug/child-debug.apk
+          if-no-files-found: error
+          retention-days: 14

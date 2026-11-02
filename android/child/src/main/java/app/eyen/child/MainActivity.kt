@@ -78,6 +78,7 @@ class MainActivity : Activity() {
             13f, Color.LTGRAY
         ))
         setContentView(root)
+        requestNotificationPermissionIfNeeded()
 
         pairButton.setOnClickListener { claimCode() }
         shareLocationButton.setOnClickListener { confirmLocationShare() }
@@ -124,6 +125,14 @@ class MainActivity : Activity() {
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
                 LOCATION_PERMISSION_REQUEST
             )
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
         }
     }
 
@@ -324,5 +333,6 @@ class MainActivity : Activity() {
         const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
         const val EXTRA_LOCATION_DEVICE_ID = "eyen_location_device_id"
         private const val LOCATION_PERMISSION_REQUEST = 41
+        private const val NOTIFICATION_PERMISSION_REQUEST = 42
     }
 }

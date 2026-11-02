@@ -83,6 +83,48 @@ class MainActivity : Activity() {
         shareLocationButton.setOnClickListener { confirmLocationShare() }
 
         if (prefs.contains("child_token")) showPairedState()
+        handleLocationRequestIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLocationRequestIntent(intent)
+    }
+
+    private fun handleLocationRequestIntent(intent: Intent?) {
+        val requestId = intent?.getStringExtra(EXTRA_LOCATION_REQUEST_ID) ?: return
+        val deviceId = intent.getStringExtra(EXTRA_LOCATION_DEVICE_ID) ?: return
+        if (deviceId != prefs.getString("child_device_id", null)) return
+        AlertDialog.Builder(this)
+            .setTitle("طلب مشاركة الموقع")
+            .setMessage("ولي الأمر طلب موقعك الحالي. هل توافق على مشاركة موقعك مرة واحدة؟")
+            .setNegativeButton("رفض") { _, _ ->
+                statusView.text = "تم رفض طلب مشاركة الموقع."
+                intent.removeExtra(EXTRA_LOCATION_REQUEST_ID)
+                intent.removeExtra(EXTRA_LOCATION_DEVICE_ID)
+            }
+            .setPositiveButton("موافقة") { _, _ ->
+                prefs.edit().putString("active_location_request_id", requestId).apply()
+                intent.removeExtra(EXTRA_LOCATION_REQUEST_ID)
+                intent.removeExtra(EXTRA_LOCATION_DEVICE_ID)
+                confirmLocationShareAfterRemoteApproval()
+            }
+            .setOnCancelListener { statusView.text = "لم تتم مشاركة الموقع." }
+            .show()
+    }
+
+    private fun confirmLocationShareAfterRemoteApproval() {
+        val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) {
+            requestCurrentLocation()
+        } else {
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                LOCATION_PERMISSION_REQUEST
+            )
+        }
     }
 
     private fun text(value: String, size: Float, color: Int) = TextView(this).apply {
@@ -187,6 +229,21 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun sendLocationRequestResult(requestId: String, location: Location) {
+        val deviceId = prefs.getString("child_device_id", null) ?: return
+        val token = prefs.getString("child_token", null) ?: return
+        statusView.text = "جارٍ إرسال الموقع الذي وافقت على مشاركته..."
+        executor.execute {
+            try {
+                ApiClient.submitLocationResult(deviceId, token, requestId, location)
+                prefs.edit().remove("active_location_request_id").apply()
+                runOnUiThread { statusView.text = "تم إرسال موقعك بموافقتك إلى ولي الأمر." }
+            } catch (error: Exception) {
+                runOnUiThread { statusView.text = "تعذر إرسال الموقع: " + (error.message ?: "خطأ اتصال") }
+            }
+        }
+    }
+
     private fun confirmLocationShare() {
         AlertDialog.Builder(this)
             .setTitle("مشاركة الموقع مع ولي الأمر")
@@ -226,7 +283,12 @@ class MainActivity : Activity() {
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
                     manager.removeUpdates(this)
-                    sendHeartbeat(location)
+                    val requestId = prefs.getString("active_location_request_id", null)
+                    if (requestId != null) {
+                        sendLocationRequestResult(requestId, location)
+                    } else {
+                        sendHeartbeat(location)
+                    }
                 }
                 override fun onProviderEnabled(provider: String) {}
                 override fun onProviderDisabled(provider: String) {}
@@ -259,6 +321,8 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
+        const val EXTRA_LOCATION_DEVICE_ID = "eyen_location_device_id"
         private const val LOCATION_PERMISSION_REQUEST = 41
     }
 }

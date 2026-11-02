@@ -11,6 +11,7 @@ internal object ApiClient {
 
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body, null)
     fun get(path: String, bearer: String): JSONObject = request("GET", path, null, bearer)
+    fun requestLocation(deviceId: String, bearer: String): JSONObject = request("POST", "/v1/devices/$deviceId/location-requests", JSONObject(), bearer)
 
     private fun request(method: String, path: String, body: JSONObject?, bearer: String?): JSONObject {
         require(BASE_URL.startsWith("https://") && !BASE_URL.contains("YOUR_API_HOST")) {

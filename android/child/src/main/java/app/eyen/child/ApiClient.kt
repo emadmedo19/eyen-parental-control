@@ -18,6 +18,13 @@ internal object ApiClient {
     fun registerFcmToken(deviceId: String, childToken: String, fcmToken: String): JSONObject =
         request("POST", "/v1/devices/$deviceId/fcm-token", JSONObject().put("token", fcmToken), childToken)
 
+    fun submitLocationResult(deviceId: String, childToken: String, requestId: String, location: android.location.Location): JSONObject =
+        request("POST", "/v1/devices/$deviceId/commands/$requestId/result", JSONObject()
+            .put("status", "completed")
+            .put("latitude", location.latitude)
+            .put("longitude", location.longitude)
+            .put("accuracyMeters", location.accuracy.toDouble()), childToken)
+
     private fun request(method: String, path: String, body: JSONObject?, bearer: String?): JSONObject {
         val connection = (URL(BASE_URL + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method

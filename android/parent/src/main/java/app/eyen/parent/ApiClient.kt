@@ -7,6 +7,7 @@ import java.net.URL
 internal object ApiClient {
     // Replace with the deployed HTTPS API origin before building.
     private const val BASE_URL = "https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api"
+    private const val API_KEY = "sb_publishable_KMbb4z0cX2jBw4ep3Rwm2w_l4M5jKft"
 
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body, null)
     fun get(path: String, bearer: String): JSONObject = request("GET", path, null, bearer)
@@ -20,6 +21,7 @@ internal object ApiClient {
             connectTimeout = 12_000
             readTimeout = 12_000
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("apikey", API_KEY)
             bearer?.let { setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
                 doOutput = true

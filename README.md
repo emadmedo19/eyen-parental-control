@@ -1,6 +1,13 @@
 # Eyen — عين
 Android-first parental safety project.
 
+## Current milestone: secure device pairing
+The `feature/device-pairing` branch contains the first pairing slice:
+- Parent app requests a one-use six-digit code valid for five minutes.
+- Child app enters the code to claim the pairing session.
+- Parent can check whether the child device has paired.
+- Pairing codes and bearer secrets are stored as digests on the API, not in plaintext.
+
 ## Scope
 - Parent Android app and Child companion app.
 - Visible, consent-based live sessions for camera, microphone and screen sharing.
@@ -13,10 +20,13 @@ Screen sharing uses Android MediaProjection consent. Device Owner does not bypas
 No hidden capture, stealth audio, or covert screen viewing is implemented.
 
 ## Project layout
-- `android/`: Kotlin/Gradle Android workspace (Parent and Child apps).
-- `server/`: API and database starter.
+- `android/parent/`: Parent Android app.
+- `android/child/`: Child companion Android app.
+- `server/`: Node.js API and PostgreSQL schema.
 - `docs/`: architecture and implementation plan.
 
-## Build
-Open `android/` in Android Studio (current stable version), allow Gradle sync, then build the
-`parent` and `child` debug variants. This starter is a scaffold, not a production-ready app.
+## Build status
+This is an early development scaffold, not a production-ready app or installable release yet.
+Before testing the Android pairing screens, deploy the API with PostgreSQL and replace
+`https://YOUR_API_HOST` in both Android `ApiClient.kt` files with the real HTTPS API origin.
+See [server/README.md](server/README.md) for setup.

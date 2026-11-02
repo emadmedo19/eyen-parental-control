@@ -8,6 +8,7 @@ The Android parent and child apps are connected to a dedicated Supabase project.
 - Parent can confirm pairing and see the paired device name.
 - Parent dashboard displays last-seen time, battery percentage and charging state.
 - Child sends status heartbeats once per minute while the app is open.
+- Firebase Cloud Messaging is configured in the child Android app; its FCM registration token is sent to the Eyen API and stored on the paired device record in Supabase. Push delivery and command handling are not yet enabled pending server-side FCM credentials and the consent-based command workflow.
 - Child can share a one-time current location after an in-app explanation, an explicit tap and Android runtime permission. Location is not collected in the background.
 - Parent can open the last shared location in a maps app.
 - Pairing codes and bearer secrets are stored as digests on the API, not in plaintext.

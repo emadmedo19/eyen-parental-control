@@ -6,7 +6,7 @@ import java.net.URL
 
 internal object ApiClient {
     // Replace with the deployed HTTPS API origin before building.
-    private const val BASE_URL = "https://YOUR_API_HOST"
+    private const val BASE_URL = "https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api"
 
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body, null)
     fun get(path: String, bearer: String): JSONObject = request("GET", path, null, bearer)

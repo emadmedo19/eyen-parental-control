@@ -125,6 +125,7 @@ class MainActivity : Activity() {
                     showPairedState()
                     statusView.text = "تم الربط بنجاح. يمكنك إرسال موقعك الحالي بموافقتك."
                     sendHeartbeat()
+                    FcmTokenRegistrar.refresh(this@MainActivity)
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -138,6 +139,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (prefs.contains("child_token")) {
+            FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)
             handler.post(heartbeatTask)
         }

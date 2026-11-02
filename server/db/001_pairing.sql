@@ -1,5 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 CREATE TABLE IF NOT EXISTS pairing_sessions (
   id UUID PRIMARY KEY,
   code_hash TEXT NOT NULL UNIQUE,

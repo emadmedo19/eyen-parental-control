@@ -1,34 +1,59 @@
 package app.eyen.child
 
+import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.BatteryManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Color
 import android.view.Gravity
+import android.view.View
 import android.view.inputmethod.InputMethodManager
-import android.content.Context
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val handler = Handler(Looper.getMainLooper())
     private lateinit var codeInput: EditText
     private lateinit var statusView: TextView
     private lateinit var pairButton: Button
+    private lateinit var shareLocationButton: Button
+    private lateinit var deviceView: TextView
     private val prefs by lazy { getSharedPreferences("eyen_child", MODE_PRIVATE) }
+    private val heartbeatTask = object : Runnable {
+        override fun run() {
+            if (prefs.contains("child_token")) {
+                sendHeartbeat()
+                handler.postDelayed(this, 60_000L)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(28, 36, 28, 36)
+            setPadding(28, 32, 28, 32)
             setBackgroundColor(Color.rgb(12, 24, 44))
         }
-        val title = text("عين", 32f, Color.WHITE)
-        val subtitle = text("ربط جهاز الطفل", 18f, Color.LTGRAY)
+        root.addView(text("عين", 32f, Color.WHITE))
+        root.addView(text("ربط جهاز الطفل", 18f, Color.LTGRAY))
+
         codeInput = EditText(this).apply {
             hint = "أدخل كود الربط المكوّن من 6 أرقام"
             textSize = 17f
@@ -40,19 +65,24 @@ class MainActivity : Activity() {
         }
         pairButton = Button(this).apply { text = "ربط الجهاز" }
         statusView = text("اطلب كود الربط من ولي الأمر. الكود صالح لمدة 5 دقائق.", 15f, Color.LTGRAY)
-        root.addView(title)
-        root.addView(subtitle)
+        deviceView = text("", 14f, Color.WHITE)
+        shareLocationButton = Button(this).apply { text = "مشاركة موقعي الآن"; visibility = View.GONE }
+
         root.addView(codeInput)
         root.addView(pairButton)
         root.addView(statusView)
+        root.addView(deviceView)
+        root.addView(shareLocationButton)
+        root.addView(text(
+            "حالة البطارية تُرسل أثناء فتح التطبيق فقط. الموقع لا يُرسل تلقائياً؛ يلزم ضغط الزر والموافقة على إذن Android.",
+            13f, Color.LTGRAY
+        ))
         setContentView(root)
 
-        if (prefs.contains("child_token")) {
-            codeInput.visibility = android.view.View.GONE
-            pairButton.visibility = android.view.View.GONE
-            statusView.text = "هذا الجهاز مرتبط بالفعل بحساب ولي الأمر."
-        }
         pairButton.setOnClickListener { claimCode() }
+        shareLocationButton.setOnClickListener { confirmLocationShare() }
+
+        if (prefs.contains("child_token")) showPairedState()
     }
 
     private fun text(value: String, size: Float, color: Int) = TextView(this).apply {
@@ -60,7 +90,16 @@ class MainActivity : Activity() {
         textSize = size
         setTextColor(color)
         gravity = Gravity.CENTER
-        setPadding(8, 14, 8, 14)
+        setPadding(8, 12, 8, 12)
+    }
+
+    private fun showPairedState() {
+        codeInput.visibility = View.GONE
+        pairButton.visibility = View.GONE
+        shareLocationButton.visibility = View.VISIBLE
+        val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
+        statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
+        deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
     }
 
     private fun claimCode() {
@@ -73,17 +112,19 @@ class MainActivity : Activity() {
         statusView.text = "جارٍ التحقق من الكود..."
         (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
             .hideSoftInputFromWindow(codeInput.windowToken, 0)
+        val deviceName = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL
         executor.execute {
             try {
-                val result = ApiClient.claim(code, android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+                val result = ApiClient.claim(code, deviceName)
                 prefs.edit()
                     .putString("child_device_id", result.getString("childDeviceId"))
                     .putString("child_token", result.getString("childToken"))
+                    .putString("device_name", deviceName)
                     .apply()
                 runOnUiThread {
-                    statusView.text = "تم ربط الجهاز بنجاح. سيظهر الجهاز لدى ولي الأمر."
-                    codeInput.visibility = android.view.View.GONE
-                    pairButton.visibility = android.view.View.GONE
+                    showPairedState()
+                    statusView.text = "تم الربط بنجاح. يمكنك إرسال موقعك الحالي بموافقتك."
+                    sendHeartbeat()
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -94,8 +135,128 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (prefs.contains("child_token")) {
+            handler.removeCallbacks(heartbeatTask)
+            handler.post(heartbeatTask)
+        }
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(heartbeatTask)
+        super.onPause()
+    }
+
+    private fun batterySnapshot(): Pair<Int, Boolean> {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percent = if (level >= 0 && scale > 0) (level * 100 / scale).coerceIn(0, 100) else -1
+        val state = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = state == BatteryManager.BATTERY_STATUS_CHARGING ||
+            state == BatteryManager.BATTERY_STATUS_FULL
+        return Pair(percent, charging)
+    }
+
+    private fun sendHeartbeat(location: Location? = null) {
+        val deviceId = prefs.getString("child_device_id", null) ?: return
+        val token = prefs.getString("child_token", null) ?: return
+        val (battery, charging) = batterySnapshot()
+        val body = JSONObject()
+            .put("batteryPercent", battery)
+            .put("isCharging", charging)
+        if (location != null) {
+            body.put("latitude", location.latitude)
+                .put("longitude", location.longitude)
+                .put("accuracyMeters", location.accuracy.toDouble())
+        }
+        executor.execute {
+            try {
+                ApiClient.heartbeat(deviceId, token, body)
+                runOnUiThread {
+                    if (location != null) statusView.text = "تم إرسال موقعك الحالي لولي الأمر."
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (location != null) statusView.text = "تعذر إرسال الموقع: " + (error.message ?: "خطأ اتصال")
+                }
+            }
+        }
+    }
+
+    private fun confirmLocationShare() {
+        AlertDialog.Builder(this)
+            .setTitle("مشاركة الموقع مع ولي الأمر")
+            .setMessage("سيتم إرسال موقعك الحالي مرة واحدة فقط. لن يتم تتبع موقعك في الخلفية.")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("متابعة") { _, _ ->
+                val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (fine || coarse) {
+                    requestCurrentLocation()
+                } else {
+                    requestPermissions(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                        LOCATION_PERMISSION_REQUEST
+                    )
+                }
+            }
+            .show()
+    }
+
+    private fun requestCurrentLocation() {
+        val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val providers = manager.getProviders(true)
+        val provider = when {
+            fine && providers.contains(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            providers.contains(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            providers.isNotEmpty() -> providers.first()
+            else -> null
+        }
+        if (provider == null) {
+            statusView.text = "فعّل خدمة الموقع في إعدادات الجهاز ثم حاول مرة أخرى."
+            return
+        }
+        try {
+            statusView.text = "جارٍ تحديد موقعك..."
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    manager.removeUpdates(this)
+                    sendHeartbeat(location)
+                }
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+                @Deprecated("Deprecated in Android")
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            }
+            manager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            statusView.text = "لم يتم منح إذن الموقع. يمكنك المحاولة مرة أخرى."
+        } catch (error: Exception) {
+            statusView.text = "تعذر تحديد الموقع: " + (error.message ?: "خطأ غير معروف")
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+            if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+                requestCurrentLocation()
+            } else {
+                statusView.text = "لم يتم منح إذن الموقع. لن تتم مشاركة موقعك."
+            }
+        }
+    }
+
     override fun onDestroy() {
+        handler.removeCallbacks(heartbeatTask)
         executor.shutdown()
         super.onDestroy()
+    }
+
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 41
     }
 }

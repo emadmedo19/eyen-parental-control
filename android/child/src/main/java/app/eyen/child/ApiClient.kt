@@ -6,7 +6,7 @@ import java.net.URL
 
 internal object ApiClient {
     // Replace with the deployed HTTPS API origin before building.
-    private const val BASE_URL = "https://YOUR_API_HOST"
+    private const val BASE_URL = "https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api"
 
     fun claim(code: String, deviceName: String): JSONObject {
         require(BASE_URL.startsWith("https://") && !BASE_URL.contains("YOUR_API_HOST")) {

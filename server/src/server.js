@@ -1,3 +1,4 @@
+import "dotenv/config";
 import crypto from "node:crypto";
 import express from "express";
 import helmet from "helmet";
@@ -16,7 +17,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(express.json({ limit: "16kb" }));
-app.use("/v1/pairing-sessions", rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: "draft-7", legacyHeaders: false }));
+app.use("/v1/pairing-sessions", rateLimit({ windowMs: 60_000, limit: 12, standardHeaders: "draft-7", legacyHeaders: false }));
+app.use("/v1/pairing-sessions/claim", rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: "draft-7", legacyHeaders: false }));
 
 const digest = (value) => crypto.createHash("sha256").update(pepper).update(":").update(value).digest("hex");
 const randomToken = () => crypto.randomBytes(32).toString("base64url");
@@ -87,3 +89,4 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(port, () => console.log(`Eyen API listening on :${port}`));
+

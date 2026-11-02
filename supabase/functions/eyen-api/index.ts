@@ -106,6 +106,64 @@ Deno.serve(async (req: Request) => {
         childDeviceId: data.child_device_id, childDeviceName: data.child_device_name,
       });
     }
+    const heartbeatMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/heartbeat$/i);
+    if (req.method === "POST" && heartbeatMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      if (await limited("heartbeat:" + heartbeatMatch[1], 60)) return reply(429, { error: "rate_limited" });
+      const body = await req.json().catch(() => ({}));
+      const update: Record<string, unknown> = { last_seen_at: new Date().toISOString() };
+      if (Number.isInteger(body?.batteryPercent) && body.batteryPercent >= 0 && body.batteryPercent <= 100) {
+        update.battery_percent = body.batteryPercent;
+      }
+      if (typeof body?.isCharging === "boolean") update.is_charging = body.isCharging;
+      const hasLat = typeof body?.latitude === "number" && Number.isFinite(body.latitude) && body.latitude >= -90 && body.latitude <= 90;
+      const hasLon = typeof body?.longitude === "number" && Number.isFinite(body.longitude) && body.longitude >= -180 && body.longitude <= 180;
+      if (hasLat && hasLon) {
+        update.location_lat = body.latitude;
+        update.location_lon = body.longitude;
+        if (typeof body?.accuracyMeters === "number" && Number.isFinite(body.accuracyMeters) && body.accuracyMeters >= 0) {
+          update.location_accuracy_m = body.accuracyMeters;
+        }
+        update.location_updated_at = new Date().toISOString();
+      }
+      const { data, error } = await db.from("pairing_sessions").update(update)
+        .eq("child_device_id", heartbeatMatch[1])
+        .eq("child_token_hash", await digest(bearer))
+        .not("claimed_at", "is", null)
+        .select("child_device_id")
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return reply(401, { error: "device_token_invalid" });
+      return reply(200, { ok: true, lastSeenAt: update.last_seen_at, locationUpdated: hasLat && hasLon });
+    }
+
+    const deviceStatusMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/status$/i);
+    if (req.method === "GET" && deviceStatusMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data, error } = await db.from("pairing_sessions")
+        .select("child_device_id, child_device_name, last_seen_at, battery_percent, is_charging, location_lat, location_lon, location_accuracy_m, location_updated_at")
+        .eq("child_device_id", deviceStatusMatch[1])
+        .eq("poll_token_hash", await digest(bearer))
+        .not("claimed_at", "is", null)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return reply(404, { error: "device_not_found" });
+      return reply(200, {
+        deviceId: data.child_device_id,
+        deviceName: data.child_device_name,
+        lastSeenAt: data.last_seen_at,
+        batteryPercent: data.battery_percent,
+        isCharging: data.is_charging,
+        location: data.location_lat !== null && data.location_lon !== null
+          ? { latitude: data.location_lat, longitude: data.location_lon, accuracyMeters: data.location_accuracy_m, updatedAt: data.location_updated_at }
+          : null,
+      });
+    }
+
     return reply(404, { error: "not_found" });
   } catch (error) {
     console.error("eyen_api_error", error);

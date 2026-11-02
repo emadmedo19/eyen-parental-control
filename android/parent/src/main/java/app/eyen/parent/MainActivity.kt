@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var checkButton: Button
     private lateinit var refreshButton: Button
     private lateinit var mapButton: Button
+    private lateinit var requestLocationButton: Button
     private var latestLatitude: Double? = null
     private var latestLongitude: Double? = null
     private val prefs by lazy { getSharedPreferences("eyen_parent", MODE_PRIVATE) }
@@ -58,12 +59,14 @@ class MainActivity : Activity() {
         locationView = text("الموقع: لم تتم مشاركته بعد", 15f, Color.LTGRAY)
         refreshButton = Button(this).apply { text = "تحديث حالة الجهاز"; isEnabled = false }
         mapButton = Button(this).apply { text = "فتح آخر موقع على الخريطة"; isEnabled = false }
+        requestLocationButton = Button(this).apply { text = "طلب موقع الطفل الآن"; isEnabled = false }
         content.addView(deviceView)
         content.addView(batteryView)
         content.addView(lastSeenView)
         content.addView(locationView)
         content.addView(refreshButton)
         content.addView(mapButton)
+        content.addView(requestLocationButton)
         content.addView(text(
             "الموقع لا يُرسل إلا عندما يضغط الطفل على مشاركة موقعي الآن ويوافق على إذن Android. تحديث البطارية وآخر ظهور يعمل أثناء فتح تطبيق الطفل.",
             13f, Color.LTGRAY
@@ -74,10 +77,12 @@ class MainActivity : Activity() {
         checkButton.setOnClickListener { checkPairing() }
         refreshButton.setOnClickListener { refreshDeviceStatus() }
         mapButton.setOnClickListener { openLastLocation() }
+        requestLocationButton.setOnClickListener { requestChildLocation() }
 
         if (prefs.contains("session_id")) checkButton.isEnabled = true
         if (prefs.contains("child_device_id")) {
             refreshButton.isEnabled = true
+            requestLocationButton.isEnabled = true
             deviceView.text = "جهاز مرتبط: " + (prefs.getString("child_device_name", "جهاز الطفل") ?: "جهاز الطفل")
             refreshDeviceStatus()
         }
@@ -95,6 +100,7 @@ class MainActivity : Activity() {
         createButton.isEnabled = !value
         checkButton.isEnabled = !value && prefs.contains("session_id")
         refreshButton.isEnabled = !value && prefs.contains("child_device_id")
+        requestLocationButton.isEnabled = !value && prefs.contains("child_device_id")
     }
 
     private fun createPairingCode() {
@@ -174,6 +180,34 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     statusView.text = "تعذر تحديث الجهاز: " + (error.message ?: "خطأ اتصال")
                     refreshButton.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun requestChildLocation() {
+        val childId = prefs.getString("child_device_id", null) ?: return
+        val token = prefs.getString("poll_token", null) ?: return
+        requestLocationButton.isEnabled = false
+        statusView.text = "جارٍ إرسال طلب الموقع إلى جهاز الطفل..."
+        executor.execute {
+            try {
+                val result = ApiClient.requestLocation(childId, token)
+                val push = result.optJSONObject("push")
+                val sent = push?.optBoolean("sent", false) == true
+                runOnUiThread {
+                    statusView.text = if (sent) {
+                        "تم إرسال طلب الموقع. سيظهر على جهاز الطفل ليوافق أو يرفض."
+                    } else {
+                        "تم تسجيل الطلب، لكن إشعار الوصول لم يُرسل بعد. السبب: " +
+                            (push?.optString("reason", "غير معروف") ?: "بيانات الإشعار غير متاحة")
+                    }
+                    requestLocationButton.isEnabled = true
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    statusView.text = "تعذر طلب الموقع: " + (error.message ?: "خطأ اتصال")
+                    requestLocationButton.isEnabled = true
                 }
             }
         }

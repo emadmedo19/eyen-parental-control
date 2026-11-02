@@ -1,11 +1,11 @@
 # Eyen — عين
 Android-first parental safety project.
 
-## Current milestone: secure device pairing
+## Current milestone: device pairing and status dashboard
 The `feature/device-pairing` branch contains the first pairing slice:
 - Parent app requests a one-use six-digit code valid for five minutes.
 - Child app enters the code to claim the pairing session.
-- Parent can check whether the child device has paired.
+- Parent can check whether the child device has paired.\n- Parent dashboard displays last-seen time, battery and charging state.\n- Child sends status heartbeats while the app is open.\n- Child can share a one-time location after explicit in-app action and Android permission; no background location tracking.
 - Pairing codes and bearer secrets are stored as digests on the API, not in plaintext.
 
 ## Scope

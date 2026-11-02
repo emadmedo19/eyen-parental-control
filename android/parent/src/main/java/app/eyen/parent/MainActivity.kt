@@ -156,6 +156,7 @@ class MainActivity : Activity() {
                     createButton.isEnabled = true
                     checkButton.isEnabled = result.optString("status") == "waiting"
                     refreshButton.isEnabled = prefs.contains("child_device_id")
+                    requestLocationButton.isEnabled = prefs.contains("child_device_id")
                 }
             } catch (error: Exception) {
                 showError(error)
@@ -263,6 +264,7 @@ class MainActivity : Activity() {
             createButton.isEnabled = true
             checkButton.isEnabled = prefs.contains("session_id")
             refreshButton.isEnabled = prefs.contains("child_device_id")
+            requestLocationButton.isEnabled = prefs.contains("child_device_id")
         }
     }
 

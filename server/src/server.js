@@ -31,6 +31,8 @@ app.post("/v1/pairing-sessions", asyncRoute(async (_req, res) => {
   const sessionId = crypto.randomUUID();
   const pollToken = randomToken();
   const expiresAt = new Date(Date.now() + 5 * 60_000);
+  // Prune old sessions so the finite six-digit code space can be safely reused.
+  await pool.query("DELETE FROM pairing_sessions WHERE expires_at < NOW() - INTERVAL '1 day'");
   let pairingCode;
   for (let attempt = 0; attempt < 5; attempt++) {
     const candidate = makeCode();

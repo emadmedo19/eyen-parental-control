@@ -392,7 +392,7 @@ Deno.serve(async (req: Request) => {
       if (active) return reply(409, { error: "remote_session_already_active" });
       const { data: session, error } = await db.from("eyen_remote_sessions").insert({
         pairing_session_id: device.id, child_device_id: device.child_device_id,
-        parent_user_id: "00000000-0000-0000-0000-000000000000", mode,
+        mode,
         expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
       }).select("id, mode, status, requested_at, expires_at").single();
       // Legacy pairing credentials do not identify an auth.users account. Keep the

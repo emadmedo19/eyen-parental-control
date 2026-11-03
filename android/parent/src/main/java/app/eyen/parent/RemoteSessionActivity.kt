@@ -42,7 +42,10 @@ class RemoteSessionActivity : Activity() {
                             "hangup" -> runOnUiThread { finishSession("انتهت الجلسة من جهاز الطفل.") }
                         }
                     }
-                } catch (e: Exception) { android.util.Log.w("EyenRTC", "Signal polling failed", e) }
+                } catch (e: Exception) {
+                android.util.Log.w("EyenRTC", "Signal polling failed", e)
+                runOnUiThread { if (!closed) status.text = "تعذر استقبال إشارات الجلسة: ${e.message ?: "خطأ شبكة"}" }
+            }
                 if (!closed) handler.postDelayed(this, 900L)
             }
         }
@@ -89,7 +92,17 @@ class RemoteSessionActivity : Activity() {
             peer = factory.createPeerConnection(config, object : PeerConnection.Observer {
                 override fun onSignalingChange(s: PeerConnection.SignalingState?) {}
                 override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) {
-                    runOnUiThread { status.text = "حالة الاتصال: $s" }
+                    val message = when (s) {
+                        PeerConnection.IceConnectionState.NEW -> "تم إنشاء الاتصال…"
+                        PeerConnection.IceConnectionState.CHECKING -> "جارٍ البحث عن مسار اتصال مباشر…"
+                        PeerConnection.IceConnectionState.CONNECTED,
+                        PeerConnection.IceConnectionState.COMPLETED -> "اتصل الجهازان. جارٍ استقبال الوسائط…"
+                        PeerConnection.IceConnectionState.DISCONNECTED -> "انقطع الاتصال مؤقتًا. جارٍ إعادة المحاولة…"
+                        PeerConnection.IceConnectionState.FAILED -> "فشل الاتصال بين الجهازين. قد يحتاج الاتصال إلى خادم TURN أو شبكة تسمح باتصال WebRTC."
+                        PeerConnection.IceConnectionState.CLOSED -> "أُغلقت جلسة الاتصال."
+                        else -> "حالة الاتصال: $s"
+                    }
+                    runOnUiThread { status.text = message }
                 }
                 override fun onIceConnectionReceivingChange(b: Boolean) {}
                 override fun onIceGatheringChange(s: PeerConnection.IceGatheringState?) {}
@@ -166,7 +179,10 @@ class RemoteSessionActivity : Activity() {
     private fun sendSignal(type: String, payload: JSONObject) {
         executor.execute {
             try { ApiClient.sendRemoteSignal(sessionId, token, type, payload) }
-            catch (e: Exception) { android.util.Log.e("EyenRTC", "Signal send failed", e) }
+            catch (e: Exception) {
+                android.util.Log.e("EyenRTC", "Signal send failed", e)
+                runOnUiThread { if (!closed) status.text = "تعذر إرسال بيانات الاتصال: ${e.message ?: "خطأ شبكة"}" }
+            }
         }
     }
 

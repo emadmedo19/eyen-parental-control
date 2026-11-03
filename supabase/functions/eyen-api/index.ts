@@ -425,6 +425,34 @@ Deno.serve(async (req: Request) => {
       return reply(200, { session: data ?? null });
     }
 
+    const remoteStatusMatch = path.match(/^\\/v1\\/remote-sessions\\/([0-9a-f-]+)$/i);
+    if (req.method === "GET" && remoteStatusMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: session, error: sessionError } = await db.from("eyen_remote_sessions")
+        .select("id, pairing_session_id, child_device_id, mode, status, requested_at, approved_at, started_at, ended_at, expires_at, end_reason")
+        .eq("id", remoteStatusMatch[1]).maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session) return reply(404, { error: "session_not_found" });
+      const { data: parent, error: parentError } = await db.from("pairing_sessions")
+        .select("id").eq("id", session.pairing_session_id)
+        .eq("poll_token_hash", await digest(bearer)).maybeSingle();
+      if (parentError) throw parentError;
+      if (!parent) return reply(404, { error: "session_not_found" });
+      if (session.status === "requested" && new Date(session.expires_at).getTime() <= Date.now()) {
+        const { data: expired, error: expireError } = await db.from("eyen_remote_sessions")
+          .update({ status: "expired", ended_at: new Date().toISOString(), end_reason: "expired" })
+          .eq("id", session.id).eq("status", "requested")
+          .select("id, pairing_session_id, child_device_id, mode, status, requested_at, approved_at, started_at, ended_at, expires_at, end_reason")
+          .maybeSingle();
+        if (expireError) throw expireError;
+        return reply(200, { session: expired ?? { ...session, status: "expired", end_reason: "expired" } });
+      }
+      const { pairing_session_id: _pairingSessionId, child_device_id: _childDeviceId, ...safeSession } = session;
+      return reply(200, { session: safeSession });
+    }
+
     const remoteDecisionMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/decision$/i);
     if (req.method === "POST" && remoteDecisionMatch) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ") ? req.headers.get("authorization")!.slice(7) : "";

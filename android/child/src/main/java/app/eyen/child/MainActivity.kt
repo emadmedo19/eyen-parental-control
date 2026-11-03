@@ -311,6 +311,7 @@ class MainActivity : Activity() {
             updateLocationButton()
         }
         if (prefs.contains("child_token")) {
+            checkPendingRemoteSession()
             updateCameraSetupButton()
             FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)

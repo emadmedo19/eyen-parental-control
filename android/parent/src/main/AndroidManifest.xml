@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:label="عين - ولي الأمر" android:allowBackup="false"
         android:usesCleartextTraffic="false">

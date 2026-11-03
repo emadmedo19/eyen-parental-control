@@ -5,6 +5,8 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.media.projection.MediaProjectionManager
+import android.content.Intent
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -23,6 +25,9 @@ class RemoteSessionActivity : Activity() {
     private var capturer: CameraVideoCapturer? = null
     private var videoSource: VideoSource? = null
     private var audioSource: AudioSource? = null
+    private var screenCapturer: ScreenCapturerAndroid? = null
+    private var screenHelper: SurfaceTextureHelper? = null
+    private var screenPermissionData: Intent? = null
     private var sessionId = ""
     private var token = ""
     private var mode = "camera"
@@ -60,7 +65,7 @@ class RemoteSessionActivity : Activity() {
         token = getSharedPreferences("eyen_child", MODE_PRIVATE).getString("child_token", "").orEmpty()
         if (sessionId.isBlank() || token.isBlank()) { finish(); return }
         if (mode == "screen") {
-            showMessage("مشاركة الشاشة تحتاج موافقة Android منفصلة، وستُفعّل في المرحلة التالية.")
+            requestScreenCapturePermission()
             return
         }
         if (mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
@@ -123,7 +128,10 @@ class RemoteSessionActivity : Activity() {
                 override fun onRenegotiationNeeded() {}
                 override fun onAddTrack(r: RtpReceiver?, streams: Array<out MediaStream>?) {}
             }) ?: error("تعذر إنشاء اتصال WebRTC")
-            if (mode == "camera") addCameraTrack()
+            when (mode) {
+                "camera" -> addCameraTrack()
+                "screen" -> addScreenTrack()
+            }
             addAudioTrack()
             handler.post(poll)
         } catch (e: Exception) {
@@ -143,6 +151,45 @@ class RemoteSessionActivity : Activity() {
         capturer?.startCapture(640, 480, 20)
         val track = factory.createVideoTrack("eyen_video", source)
         peer?.addTrack(track, listOf("eyen_stream"))
+    }
+
+    private fun requestScreenCapturePermission() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        startActivityForResult(manager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST)
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SCREEN_CAPTURE_REQUEST) return
+        if (resultCode != RESULT_OK || data == null) {
+            showMessage("لم تتم الموافقة على مشاركة الشاشة؛ لم يبدأ أي بث.")
+            return
+        }
+        screenPermissionData = data
+        try {
+            val service = Intent(this, MediaProjectionForegroundService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
+            startRtc()
+        } catch (error: Exception) {
+            showMessage("تعذر بدء خدمة مشاركة الشاشة: ${error.message}")
+        }
+    }
+
+    private fun addScreenTrack() {
+        val data = screenPermissionData ?: error("موافقة مشاركة الشاشة غير متاحة")
+        val source = factory.createVideoSource(true)
+        videoSource = source
+        screenHelper = SurfaceTextureHelper.create("EyenScreenCapture", egl.eglBaseContext)
+        screenCapturer = ScreenCapturerAndroid(data, object : MediaProjection.Callback() {
+            override fun onStop() { runOnUiThread { finishSession("أوقف Android مشاركة الشاشة.") } }
+        })
+        screenCapturer?.initialize(screenHelper, applicationContext, source.capturerObserver)
+        val metrics = resources.displayMetrics
+        val width = (metrics.widthPixels / 2).coerceAtLeast(360)
+        val height = (metrics.heightPixels / 2).coerceAtLeast(640)
+        screenCapturer?.startCapture(width, height, 15)
+        peer?.addTrack(factory.createVideoTrack("eyen_screen", source), listOf("eyen_stream"))
     }
 
     private fun addAudioTrack() {
@@ -205,7 +252,11 @@ class RemoteSessionActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         sendSignal("hangup", JSONObject())
         try { capturer?.stopCapture() } catch (_: Exception) {}
+        try { screenCapturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose(); capturer = null
+        screenCapturer?.dispose(); screenCapturer = null
+        screenHelper?.dispose(); screenHelper = null
+        stopService(Intent(this, MediaProjectionForegroundService::class.java))
         peer?.close(); peer?.dispose(); peer = null
         videoSource?.dispose(); audioSource?.dispose()
         status.text = message
@@ -216,10 +267,15 @@ class RemoteSessionActivity : Activity() {
         closed = true
         handler.removeCallbacksAndMessages(null)
         try { capturer?.stopCapture() } catch (_: Exception) {}
-        capturer?.dispose(); peer?.dispose(); videoSource?.dispose(); audioSource?.dispose()
+        try { screenCapturer?.stopCapture() } catch (_: Exception) {}
+        capturer?.dispose(); screenCapturer?.dispose(); screenHelper?.dispose()
+        peer?.dispose(); videoSource?.dispose(); audioSource?.dispose()
+        stopService(Intent(this, MediaProjectionForegroundService::class.java))
         if (::factory.isInitialized) factory.dispose()
         egl.release()
         executor.shutdown()
         super.onDestroy()
     }
+
+    companion object { private const val SCREEN_CAPTURE_REQUEST = 7412 }
 }

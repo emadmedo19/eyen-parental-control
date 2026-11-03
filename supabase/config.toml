@@ -1,0 +1,4 @@
+project_id = "wreilawyquhhbvkkgmfy"
+
+[functions.eyen-api]
+verify_jwt = false

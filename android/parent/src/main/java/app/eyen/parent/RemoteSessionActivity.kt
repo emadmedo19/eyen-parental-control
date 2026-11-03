@@ -52,13 +52,6 @@ class RemoteSessionActivity : Activity() {
         val mode = intent.getStringExtra("mode") ?: "camera"
         token = getSharedPreferences("eyen_parent", MODE_PRIVATE).getString("poll_token", "").orEmpty()
         if (sessionId.isBlank() || token.isBlank()) { finish(); return }
-        if (mode == "screen") {
-            setContentView(TextView(this).apply {
-                text = "مشاركة الشاشة ستُفعّل بعد إضافة تدفق موافقة Android MediaProjection."
-                gravity = Gravity.CENTER; textSize = 18f
-            })
-            return
-        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             setPadding(16, 24, 16, 24); setBackgroundColor(0xff0c182c.toInt())
@@ -114,7 +107,7 @@ class RemoteSessionActivity : Activity() {
                     runOnUiThread { status.text = "تم استقبال تدفق الوسائط من جهاز الطفل." }
                 }
             }) ?: error("تعذر إنشاء اتصال WebRTC")
-            if (mode == "camera") {
+            if (mode == "camera" || mode == "screen") {
                 peer?.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
                     RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
             }

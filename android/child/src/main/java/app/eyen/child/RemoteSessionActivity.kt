@@ -189,8 +189,9 @@ class RemoteSessionActivity : Activity() {
         val camera = capturer ?: error("لم يعثر التطبيق على كاميرا متاحة")
         val source = factory.createVideoSource(false)
         videoSource = source
-        cameraHelper = SurfaceTextureHelper.create("EyenCamera", egl.eglBaseContext)
-        camera.initialize(cameraHelper, this, source.capturerObserver)
+        val helper = SurfaceTextureHelper.create("EyenCamera", egl.eglBaseContext)
+        cameraHelper = helper
+        camera.initialize(helper, this, source.capturerObserver)
         camera.startCapture(640, 480, 20)
         val track = factory.createVideoTrack("eyen_video", source)
         check(peer?.addTrack(track, listOf("eyen_stream")) != null) { "تعذر إضافة مسار الفيديو إلى الاتصال" }

@@ -20,6 +20,8 @@ internal object ApiClient {
 
     fun pollRemoteSignals(sessionId: String, childToken: String, afterId: Long): JSONObject =
         request("GET", "/v1/remote-sessions/$sessionId/signals?after=$afterId", null, childToken)
+    fun getRemoteIceServers(sessionId: String, childToken: String): JSONObject =
+        request("GET", "/v1/remote-sessions/$sessionId/ice-servers", null, childToken)
 
     fun pendingRemoteSession(deviceId: String, childToken: String): JSONObject = request("GET", "/v1/devices/$deviceId/remote-sessions/pending", null, childToken)
 

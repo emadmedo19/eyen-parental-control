@@ -105,6 +105,18 @@ async function sendFcmData(token: string, data: Record<string, string>) {
   return { sent: true };
 }
 
+
+async function makeTurnCredential(username: string, secret: string) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-1" }, false, ["sign"],
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    "HMAC", key, new TextEncoder().encode(username),
+  ));
+  return btoa(String.fromCharCode(...signature));
+}
+
 async function limited(key: string, max: number) {
   const { data, error } = await db.rpc("consume_eyen_rate_limit", {
     p_key_hash: await digest("rate:" + key),
@@ -498,6 +510,48 @@ Deno.serve(async (req: Request) => {
         .select("id, status").maybeSingle();
       if (updateError) throw updateError;
       return reply(200, { session: data ?? { id: session.id, status: "ended" } });
+    }
+
+
+    const iceConfigMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/ice-servers$/i);
+    if (req.method === "GET" && iceConfigMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: session, error } = await db.from("eyen_remote_sessions")
+        .select("id, pairing_session_id, child_device_id, status, expires_at")
+        .eq("id", iceConfigMatch[1]).maybeSingle();
+      if (error) throw error;
+      if (!session) return reply(404, { error: "session_not_found" });
+      const tokenHash = await digest(bearer);
+      const { data: parent } = await db.from("pairing_sessions").select("id")
+        .eq("id", session.pairing_session_id).eq("poll_token_hash", tokenHash).maybeSingle();
+      const { data: child } = await db.from("pairing_sessions").select("id")
+        .eq("id", session.pairing_session_id).eq("child_device_id", session.child_device_id)
+        .eq("child_token_hash", tokenHash).maybeSingle();
+      if (!parent && !child) return reply(401, { error: "device_token_invalid" });
+      if (!["approved", "connecting", "active"].includes(session.status) ||
+          new Date(session.expires_at).getTime() <= Date.now()) {
+        return reply(409, { error: "session_not_ready" });
+      }
+      const iceServers: Array<Record<string, unknown>> = [{
+        urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+      }];
+      const turnUrls = (Deno.env.get("TURN_URLS") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+      const turnSecret = Deno.env.get("TURN_SHARED_SECRET") ?? "";
+      let turnExpiresAt: string | null = null;
+      if (turnUrls.length && turnSecret) {
+        const ttl = Math.min(3600, Math.max(300, Number(Deno.env.get("TURN_TTL_SECONDS") ?? "900") || 900));
+        const expiry = Math.floor(Date.now() / 1000) + ttl;
+        const username = expiry + ":" + session.id;
+        iceServers.push({
+          urls: turnUrls,
+          username,
+          credential: await makeTurnCredential(username, turnSecret),
+        });
+        turnExpiresAt = new Date(expiry * 1000).toISOString();
+      }
+      return reply(200, { iceServers, turnConfigured: iceServers.length > 1, turnExpiresAt });
     }
 
     const signalMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/signals$/i);

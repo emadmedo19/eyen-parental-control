@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var pairButton: Button
     private lateinit var shareLocationButton: Button
+    private lateinit var cameraSetupButton: Button
     private lateinit var deviceView: TextView
     private val prefs by lazy { getSharedPreferences("eyen_child", MODE_PRIVATE) }
     private val heartbeatTask = object : Runnable {
@@ -67,12 +68,18 @@ class MainActivity : Activity() {
         statusView = text("اطلب كود الربط من ولي الأمر. الكود صالح لمدة 5 دقائق.", 15f, Color.LTGRAY)
         deviceView = text("", 14f, Color.WHITE)
         shareLocationButton = Button(this).apply { text = "إعداد مشاركة الموقع المستمرة"; visibility = View.GONE }
+        cameraSetupButton = Button(this).apply { text = "إعداد أذونات الكاميرا والميكروفون"; visibility = View.GONE }
 
         root.addView(codeInput)
         root.addView(pairButton)
         root.addView(statusView)
         root.addView(deviceView)
         root.addView(shareLocationButton)
+        root.addView(cameraSetupButton)
+        root.addView(text(
+            "الكاميرا والميكروفون لا يعملان تلقائيًا. لن تبدأ أي جلسة إلا بإشعار واضح، ويمكنك إيقافها في أي وقت.",
+            13f, Color.LTGRAY
+        ))
         root.addView(text(
             "يمكنك تفعيل مشاركة موقعك باستمرار بموافقتك. ستظهر علامة إشعار دائمة أثناء المشاركة، ويمكنك إيقافها من هنا في أي وقت.",
             13f, Color.LTGRAY
@@ -81,6 +88,7 @@ class MainActivity : Activity() {
         requestNotificationPermissionIfNeeded()
 
         pairButton.setOnClickListener { claimCode() }
+        cameraSetupButton.setOnClickListener { confirmCameraSetup() }
         shareLocationButton.setOnClickListener {
             if (prefs.getBoolean("continuous_location_enabled", false)) stopContinuousLocation() else confirmLocationShare()
         }
@@ -154,6 +162,34 @@ class MainActivity : Activity() {
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
         statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
         deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
+    }
+
+    private fun confirmCameraSetup() {
+        val cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (cameraGranted && audioGranted) {
+            statusView.text = "تم منح أذونات الكاميرا والميكروفون. لم يبدأ البث؛ تشغيله يحتاج جلسة واضحة بإشعار ظاهر."
+            updateCameraSetupButton()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("إعداد الكاميرا والميكروفون")
+            .setMessage("بموافقتك، تسمح لتطبيق عين باستخدام الكاميرا والميكروفون عند بدء جلسة معلنة. سيظهر إشعار واضح أثناء أي جلسة، ويمكنك إيقافها فورًا. يمكنك رفض الإذن أو سحبه لاحقًا من إعدادات Android. منح الأذونات وحده لا يشغّل الكاميرا أو يسجل الصوت.")
+            .setNegativeButton("ليس الآن", null)
+            .setPositiveButton("موافقة ومتابعة") { _, _ ->
+                val requested = mutableListOf<String>()
+                if (!cameraGranted) requested.add(Manifest.permission.CAMERA)
+                if (!audioGranted) requested.add(Manifest.permission.RECORD_AUDIO)
+                if (requested.isNotEmpty()) requestPermissions(requested.toTypedArray(), CAMERA_PERMISSION_REQUEST)
+            }
+            .show()
+    }
+
+    private fun updateCameraSetupButton() {
+        if (!::cameraSetupButton.isInitialized) return
+        val camera = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val audio = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        cameraSetupButton.text = if (camera && audio) "أذونات الكاميرا والميكروفون مفعّلة" else "إعداد أذونات الكاميرا والميكروفون"
     }
 
     private fun claimCode() {
@@ -368,6 +404,18 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            updateCameraSetupButton()
+            val cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            statusView.text = when {
+                cameraGranted && audioGranted -> "تم منح أذونات الكاميرا والميكروفون. لم يبدأ البث؛ سيحتاج جلسة واضحة بإشعار ظاهر."
+                cameraGranted -> "تم منح إذن الكاميرا فقط. إذن الميكروفون لم يُمنح."
+                audioGranted -> "تم منح إذن الميكروفون فقط. إذن الكاميرا لم يُمنح."
+                else -> "لم يتم منح أذونات الكاميرا والميكروفون."
+            }
+            return
+        }
         if (requestCode == BACKGROUND_PERMISSION_REQUEST) {
             if (hasBackgroundLocation()) {
                 prefs.edit().putBoolean("continuous_location_enabled", true).apply()
@@ -396,5 +444,6 @@ class MainActivity : Activity() {
         private const val LOCATION_PERMISSION_REQUEST = 41
         private const val NOTIFICATION_PERMISSION_REQUEST = 42
         private const val BACKGROUND_PERMISSION_REQUEST = 43
+        private const val CAMERA_PERMISSION_REQUEST = 44
     }
 }

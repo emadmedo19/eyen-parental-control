@@ -33,6 +33,9 @@ class MainActivity : Activity() {
     private lateinit var requestLocationButton: Button
     private lateinit var cameraTestInfo: TextView
     private lateinit var cameraTestButton: Button
+    private lateinit var cameraRequestButton: Button
+    private lateinit var audioRequestButton: Button
+    private lateinit var screenRequestButton: Button
     private var latestLatitude: Double? = null
     private var latestLongitude: Double? = null
     private val prefs by lazy { getSharedPreferences("eyen_parent", MODE_PRIVATE) }
@@ -83,6 +86,13 @@ class MainActivity : Activity() {
         cameraTestButton = Button(this).apply { text = "طريقة اختبار الكاميرا" }
         content.addView(cameraTestInfo)
         content.addView(cameraTestButton)
+        content.addView(text("طلبات جلسات الجهاز", 20f, Color.WHITE))
+        cameraRequestButton = Button(this).apply { text = "طلب فتح الكاميرا"; isEnabled = false }
+        audioRequestButton = Button(this).apply { text = "طلب تشغيل الصوت"; isEnabled = false }
+        screenRequestButton = Button(this).apply { text = "طلب مشاركة الشاشة"; isEnabled = false }
+        content.addView(cameraRequestButton)
+        content.addView(audioRequestButton)
+        content.addView(screenRequestButton)
         content.addView(text(
             "يظهر آخر موقع شاركه الطفل مع وقت تحديثه. عند تفعيل المشاركة المستمرة بموافقته، يتم تحديث الحالة تلقائياً كل دقيقة تقريباً أثناء فتح لوحة ولي الأمر؛ وقد يؤخر Android التحديثات لتوفير البطارية.",
             13f, Color.LTGRAY
@@ -94,6 +104,9 @@ class MainActivity : Activity() {
         refreshButton.setOnClickListener { refreshDeviceStatus() }
         mapButton.setOnClickListener { openLastLocation() }
         requestLocationButton.setOnClickListener { requestChildLocation() }
+        cameraRequestButton.setOnClickListener { requestRemoteSession("camera") }
+        audioRequestButton.setOnClickListener { requestRemoteSession("audio") }
+        screenRequestButton.setOnClickListener { requestRemoteSession("screen") }
         cameraTestButton.setOnClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("اختبار الكاميرا")
@@ -106,6 +119,9 @@ class MainActivity : Activity() {
         if (prefs.contains("child_device_id")) {
             refreshButton.isEnabled = true
             requestLocationButton.isEnabled = true
+            cameraRequestButton.isEnabled = true
+            audioRequestButton.isEnabled = true
+            screenRequestButton.isEnabled = true
             deviceView.text = "جهاز مرتبط: " + (prefs.getString("child_device_name", "جهاز الطفل") ?: "جهاز الطفل")
             refreshDeviceStatus()
         }
@@ -217,6 +233,37 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     statusView.text = "تعذر تحديث الجهاز: " + (error.message ?: "خطأ اتصال")
                     refreshButton.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun requestRemoteSession(mode: String) {
+        val childId = prefs.getString("child_device_id", null) ?: return
+        val token = prefs.getString("poll_token", null) ?: return
+        val label = when (mode) { "camera" -> "الكاميرا"; "audio" -> "الصوت"; else -> "مشاركة الشاشة" }
+        cameraRequestButton.isEnabled = false
+        audioRequestButton.isEnabled = false
+        screenRequestButton.isEnabled = false
+        statusView.text = "جارٍ إرسال طلب $label إلى جهاز الطفل..."
+        executor.execute {
+            try {
+                val result = ApiClient.requestRemoteSession(childId, token, mode)
+                val push = result.optJSONObject("push")
+                val sent = push?.optBoolean("sent", false) == true
+                runOnUiThread {
+                    statusView.text = if (sent) "تم إرسال طلب $label. في انتظار موافقة الطفل." else
+                        "تم تسجيل طلب $label، لكن تعذر إرسال إشعار للجهاز: " + (push?.optString("reason", "غير معروف") ?: "غير معروف")
+                    cameraRequestButton.isEnabled = true
+                    audioRequestButton.isEnabled = true
+                    screenRequestButton.isEnabled = true
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    statusView.text = "تعذر طلب $label: " + (error.message ?: "خطأ اتصال")
+                    cameraRequestButton.isEnabled = true
+                    audioRequestButton.isEnabled = true
+                    screenRequestButton.isEnabled = true
                 }
             }
         }

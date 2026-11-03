@@ -22,6 +22,8 @@ class RemoteSessionActivity : Activity() {
     private var sessionId = ""
     private var token = ""
     private var cursor = 0L
+    private val pendingIce = mutableListOf<IceCandidate>()
+    private var remoteDescriptionSet = false
     private var closed = false
     private val egl by lazy { EglBase.create() }
     private val poll = object : Runnable {
@@ -111,8 +113,10 @@ class RemoteSessionActivity : Activity() {
                 peer?.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
                     RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
             }
-            peer?.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
-                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
+            if (mode == "camera" || mode == "audio") {
+                peer?.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                    RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
+            }
             peer?.createOffer(object : SdpObserver {
                 override fun onCreateSuccess(offer: SessionDescription?) {
                     if (offer == null) return
@@ -140,7 +144,12 @@ class RemoteSessionActivity : Activity() {
         if (sdp.isBlank()) return
         peer?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription?) {}
-            override fun onSetSuccess() { runOnUiThread { status.text = "تم تبادل بيانات الاتصال. في انتظار الوسائط…" } }
+            override fun onSetSuccess() {
+                remoteDescriptionSet = true
+                pendingIce.forEach { peer?.addIceCandidate(it) }
+                pendingIce.clear()
+                runOnUiThread { status.text = "تم تبادل بيانات الاتصال. في انتظار الوسائط…" }
+            }
             override fun onCreateFailure(e: String?) { fail(e) }
             override fun onSetFailure(e: String?) { fail(e) }
         }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
@@ -148,9 +157,10 @@ class RemoteSessionActivity : Activity() {
 
     private fun addIce(p: JSONObject) {
         val candidate = p.optString("candidate")
-        if (candidate.isNotBlank()) peer?.addIceCandidate(
-            IceCandidate(p.optString("sdpMid"), p.optInt("sdpMLineIndex"), candidate)
-        )
+        if (candidate.isNotBlank()) {
+            val ice = IceCandidate(p.optString("sdpMid"), p.optInt("sdpMLineIndex"), candidate)
+            if (remoteDescriptionSet) peer?.addIceCandidate(ice) else pendingIce.add(ice)
+        }
     }
 
     private fun sendSignal(type: String, payload: JSONObject) {

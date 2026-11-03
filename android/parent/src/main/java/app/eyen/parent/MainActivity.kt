@@ -68,11 +68,17 @@ class MainActivity : Activity() {
                             "requested" -> "طلب $mode اتبعت. في انتظار موافقة الطفل..."
                             "approved" -> {
                                 if (prefs.getString("opened_remote_session_id", null) != sessionId) {
-                                    prefs.edit().putString("opened_remote_session_id", sessionId).apply()
-                                    runOnUiThread {
+                                    try {
+                                        // This branch is already running on the main thread.
+                                        // Launch directly and mark the session only after Android accepts it.
+                                        statusView.text = "الطفل وافق. جارٍ فتح شاشة البث المباشر…"
                                         startActivity(Intent(this@MainActivity, RemoteSessionActivity::class.java)
                                             .putExtra("session_id", sessionId)
                                             .putExtra("mode", session.optString("mode")))
+                                        prefs.edit().putString("opened_remote_session_id", sessionId).apply()
+                                    } catch (launchError: Exception) {
+                                        Log.e("EyenRTC", "Could not open parent live session", launchError)
+                                        statusView.text = "تمت الموافقة، لكن تعذر فتح شاشة البث: ${launchError.message ?: "خطأ غير معروف"}"
                                     }
                                 }
                                 "الطفل وافق. جاري فتح شاشة البث المباشر…"
@@ -134,7 +140,7 @@ class MainActivity : Activity() {
         content.addView(mapButton)
         content.addView(requestLocationButton)
         content.addView(text("اختبار كاميرا جهاز الطفل", 20f, Color.WHITE))
-        cameraTestInfo = text("المعاينة المحلية متاحة من تطبيق الطفل فقط. البث المباشر إلى ولي الأمر لم يُربط بعد.", 14f, Color.LTGRAY)
+        cameraTestInfo = text("يمكنك طلب بث الكاميرا أو الميكروفون أو الشاشة بعد موافقة الطفل.", 14f, Color.LTGRAY)
         cameraTestButton = Button(this).apply { text = "طريقة اختبار الكاميرا" }
         content.addView(cameraTestInfo)
         content.addView(cameraTestButton)

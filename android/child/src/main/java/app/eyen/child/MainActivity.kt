@@ -128,7 +128,7 @@ class MainActivity : Activity() {
                         .setTitle("طلب من ولي الأمر")
                         .setMessage("ولي الأمر يطلب استخدام $label. لن يبدأ أي تشغيل قبل موافقتك، ويمكنك الرفض.")
                         .setNegativeButton("رفض") { _, _ -> sendRemoteDecision(id, "rejected") }
-                        .setPositiveButton("موافقة") { _, _ -> sendRemoteDecision(id, "approved") }
+                        .setPositiveButton("موافقة") { _, _ -> sendRemoteDecision(id, "approved", mode) }
                         .setOnCancelListener { sendRemoteDecision(id, "rejected") }
                         .show()
                 }
@@ -138,15 +138,19 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendRemoteDecision(id: String, decision: String) {
+    private fun sendRemoteDecision(id: String, decision: String, mode: String = "camera") {
         val token = prefs.getString("child_token", null) ?: return
         executor.execute {
             try {
                 ApiClient.decideRemoteSession(id, token, decision)
                 runOnUiThread {
-                    statusView.text = if (decision == "approved")
-                        "تم تسجيل موافقتك. ميزة البث المباشر لم تُفعّل بعد."
-                    else "تم رفض طلب ولي الأمر."
+                    statusView.text = if (decision == "approved") {
+                        "تمت الموافقة. افتح جلسة المشاركة الظاهرة الآن."
+                    } else "تم رفض طلب ولي الأمر."
+                    if (decision == "approved") {
+                        startActivity(Intent(this@MainActivity, RemoteSessionActivity::class.java)
+                            .putExtra("session_id", id).putExtra("mode", mode))
+                    }
                 }
             } catch (error: Exception) {
                 prefs.edit().remove("last_remote_prompt_id").apply()

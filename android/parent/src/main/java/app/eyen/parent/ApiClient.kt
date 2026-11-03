@@ -17,6 +17,8 @@ internal object ApiClient {
         request("POST", "/v1/remote-sessions/$sessionId/signals", JSONObject().put("type", type).put("payload", payload), parentToken)
     fun pollRemoteSignals(sessionId: String, parentToken: String, afterId: Long): JSONObject =
         request("GET", "/v1/remote-sessions/$sessionId/signals?after=$afterId", null, parentToken)
+    fun getRemoteIceServers(sessionId: String, parentToken: String): JSONObject =
+        request("GET", "/v1/remote-sessions/$sessionId/ice-servers", null, parentToken)
 
     fun getRemoteSession(sessionId: String, bearer: String): JSONObject = request("GET", "/v1/remote-sessions/$sessionId", null, bearer)
 

@@ -68,11 +68,14 @@ class MainActivity : Activity() {
                             "requested" -> "طلب $mode اتبعت. في انتظار موافقة الطفل..."
                             "approved" -> {
                                 if (prefs.getString("opened_remote_session_id", null) != sessionId) {
-                                    prefs.edit().putString("opened_remote_session_id", sessionId).apply()
-                                    runOnUiThread {
+                                    try {
                                         startActivity(Intent(this@MainActivity, RemoteSessionActivity::class.java)
                                             .putExtra("session_id", sessionId)
                                             .putExtra("mode", session.optString("mode")))
+                                        prefs.edit().putString("opened_remote_session_id", sessionId).apply()
+                                    } catch (launchError: Exception) {
+                                        android.util.Log.e("EyenRTC", "Could not open parent live session", launchError)
+                                        statusView.text = "تمت الموافقة، لكن تعذر فتح شاشة البث: ${launchError.message ?: "خطأ غير معروف"}"
                                     }
                                 }
                                 "الطفل وافق. جاري فتح شاشة البث المباشر…"

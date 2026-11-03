@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Color
 import android.view.Gravity
 import android.widget.Button
@@ -32,6 +34,13 @@ class MainActivity : Activity() {
     private var latestLatitude: Double? = null
     private var latestLongitude: Double? = null
     private val prefs by lazy { getSharedPreferences("eyen_parent", MODE_PRIVATE) }
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusPolling = object : Runnable {
+        override fun run() {
+            if (prefs.contains("child_device_id")) refreshDeviceStatus()
+            statusHandler.postDelayed(this, 60_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,7 +77,7 @@ class MainActivity : Activity() {
         content.addView(mapButton)
         content.addView(requestLocationButton)
         content.addView(text(
-            "الموقع لا يُرسل إلا عندما يضغط الطفل على مشاركة موقعي الآن ويوافق على إذن Android. تحديث البطارية وآخر ظهور يعمل أثناء فتح تطبيق الطفل.",
+            "يظهر آخر موقع شاركه الطفل مع وقت تحديثه. عند تفعيل المشاركة المستمرة بموافقته، يتم تحديث الحالة تلقائياً كل دقيقة تقريباً أثناء فتح لوحة ولي الأمر؛ وقد يؤخر Android التحديثات لتوفير البطارية.",
             13f, Color.LTGRAY
         ))
 
@@ -86,6 +95,19 @@ class MainActivity : Activity() {
             deviceView.text = "جهاز مرتبط: " + (prefs.getString("child_device_name", "جهاز الطفل") ?: "جهاز الطفل")
             refreshDeviceStatus()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (prefs.contains("child_device_id")) {
+            statusHandler.removeCallbacks(statusPolling)
+            statusHandler.post(statusPolling)
+        }
+    }
+
+    override fun onPause() {
+        statusHandler.removeCallbacks(statusPolling)
+        super.onPause()
     }
 
     private fun text(value: String, size: Float, color: Int) = TextView(this).apply {
@@ -229,7 +251,7 @@ class MainActivity : Activity() {
             latestLongitude = location.optDouble("longitude")
             val accuracy = if (location.has("accuracyMeters") && !location.isNull("accuracyMeters"))
                 " — دقة تقريبية " + location.optInt("accuracyMeters") + " متر" else ""
-            locationView.text = "آخر موقع تمت مشاركته$accuracy"
+            locationView.text = "آخر موقع تمت مشاركته$accuracy\\nآخر تحديث للموقع: " + formatTime(location.optString("updatedAt", ""))
             mapButton.isEnabled = true
         } else {
             latestLatitude = null

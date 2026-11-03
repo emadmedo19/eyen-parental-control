@@ -76,6 +76,7 @@ class MainActivity : Activity() {
                                     } catch (launchError: Exception) {
                                         android.util.Log.e("EyenRTC", "Could not open parent live session", launchError)
                                         statusView.text = "تمت الموافقة، لكن تعذر فتح شاشة البث: ${launchError.message ?: "خطأ غير معروف"}"
+                                        return@runOnUiThread
                                     }
                                 }
                                 "الطفل وافق. جاري فتح شاشة البث المباشر…"

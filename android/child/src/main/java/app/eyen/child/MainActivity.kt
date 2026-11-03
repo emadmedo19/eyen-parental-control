@@ -66,7 +66,7 @@ class MainActivity : Activity() {
         pairButton = Button(this).apply { text = "ربط الجهاز" }
         statusView = text("اطلب كود الربط من ولي الأمر. الكود صالح لمدة 5 دقائق.", 15f, Color.LTGRAY)
         deviceView = text("", 14f, Color.WHITE)
-        shareLocationButton = Button(this).apply { text = "مشاركة موقعي الآن"; visibility = View.GONE }
+        shareLocationButton = Button(this).apply { text = "إعداد مشاركة الموقع المستمرة"; visibility = View.GONE }
 
         root.addView(codeInput)
         root.addView(pairButton)
@@ -74,14 +74,16 @@ class MainActivity : Activity() {
         root.addView(deviceView)
         root.addView(shareLocationButton)
         root.addView(text(
-            "حالة البطارية تُرسل أثناء فتح التطبيق فقط. الموقع لا يُرسل تلقائياً؛ يلزم ضغط الزر والموافقة على إذن Android.",
+            "يمكنك تفعيل مشاركة موقعك باستمرار بموافقتك. ستظهر علامة إشعار دائمة أثناء المشاركة، ويمكنك إيقافها من هنا في أي وقت.",
             13f, Color.LTGRAY
         ))
         setContentView(root)
         requestNotificationPermissionIfNeeded()
 
         pairButton.setOnClickListener { claimCode() }
-        shareLocationButton.setOnClickListener { confirmLocationShare() }
+        shareLocationButton.setOnClickListener {
+            if (prefs.getBoolean("continuous_location_enabled", false)) stopContinuousLocation() else confirmLocationShare()
+        }
 
         if (prefs.contains("child_token")) showPairedState()
         handleLocationRequestIntent(intent)
@@ -148,6 +150,7 @@ class MainActivity : Activity() {
         codeInput.visibility = View.GONE
         pairButton.visibility = View.GONE
         shareLocationButton.visibility = View.VISIBLE
+        updateLocationButton()
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
         statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
         deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
@@ -189,6 +192,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (prefs.getBoolean("awaiting_background_location", false)) {
+            if (hasBackgroundLocation()) {
+                prefs.edit().remove("awaiting_background_location").putBoolean("continuous_location_enabled", true).apply()
+                startLocationService()
+            } else {
+                statusView.text = "لإكمال المشاركة المستمرة، اسمح للموقع طوال الوقت من إعدادات التطبيق."
+            }
+            updateLocationButton()
+        }
         if (prefs.contains("child_token")) {
             FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)
@@ -255,22 +267,64 @@ class MainActivity : Activity() {
 
     private fun confirmLocationShare() {
         AlertDialog.Builder(this)
-            .setTitle("مشاركة الموقع مع ولي الأمر")
-            .setMessage("سيتم إرسال موقعك الحالي مرة واحدة فقط. لن يتم تتبع موقعك في الخلفية.")
+             .setTitle("تفعيل مشاركة الموقع المستمرة")
+            .setMessage("بموافقتك، سيشارك تطبيق عين موقع هذا الجهاز مع ولي الأمر بشكل دوري أثناء تشغيل خدمة ظاهرة بإشعار دائم. يمكنك إيقاف المشاركة في أي وقت من هذا التطبيق. قد يؤخر Android التحديثات لتوفير البطارية.")
             .setNegativeButton("إلغاء", null)
             .setPositiveButton("متابعة") { _, _ ->
                 val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                if (fine || coarse) {
-                    requestCurrentLocation()
-                } else {
-                    requestPermissions(
-                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                        LOCATION_PERMISSION_REQUEST
-                    )
-                }
+                if (fine || coarse) continueBackgroundPermissionFlow() else requestPermissions(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    LOCATION_PERMISSION_REQUEST
+                )
             }
             .show()
+    }
+
+
+    private fun hasBackgroundLocation(): Boolean = android.os.Build.VERSION.SDK_INT < 29 ||
+        checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun continueBackgroundPermissionFlow() {
+        if (android.os.Build.VERSION.SDK_INT >= 30 && !hasBackgroundLocation()) {
+            prefs.edit().putBoolean("awaiting_background_location", true).apply()
+            AlertDialog.Builder(this)
+                .setTitle("السماح بالموقع طوال الوقت")
+                .setMessage("لإرسال التحديثات عندما لا يكون التطبيق مفتوحاً، افتح إعدادات أذونات الموقع واختر السماح طوال الوقت. هذا الإذن اختياري ويمكنك رفضه.")
+                .setNegativeButton("إلغاء") { _, _ -> prefs.edit().remove("awaiting_background_location").apply() }
+                .setPositiveButton("فتح الإعدادات") { _, _ ->
+                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
+                }.show()
+        } else if (android.os.Build.VERSION.SDK_INT == 29 && !hasBackgroundLocation()) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), BACKGROUND_PERMISSION_REQUEST)
+        } else {
+            prefs.edit().putBoolean("continuous_location_enabled", true).apply()
+            startLocationService()
+        }
+    }
+
+    private fun startLocationService() {
+        try {
+            val serviceIntent = Intent(this, LocationSharingService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
+            statusView.text = "مشاركة الموقع المستمرة مفعّلة. يمكنك إيقافها في أي وقت."
+            updateLocationButton()
+        } catch (error: Exception) {
+            prefs.edit().putBoolean("continuous_location_enabled", false).apply()
+            statusView.text = "تعذر تشغيل مشاركة الموقع: " + (error.message ?: "خطأ")
+        }
+    }
+
+    private fun stopContinuousLocation() {
+        stopService(Intent(this, LocationSharingService::class.java).setAction(LocationSharingService.ACTION_STOP))
+        prefs.edit().putBoolean("continuous_location_enabled", false).apply()
+        statusView.text = "تم إيقاف مشاركة الموقع."
+        updateLocationButton()
+    }
+
+    private fun updateLocationButton() {
+        if (::shareLocationButton.isInitialized) shareLocationButton.text =
+            if (prefs.getBoolean("continuous_location_enabled", false)) "إيقاف مشاركة الموقع" else "إعداد مشاركة الموقع المستمرة"
     }
 
     private fun requestCurrentLocation() {
@@ -314,9 +368,16 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == BACKGROUND_PERMISSION_REQUEST) {
+            if (hasBackgroundLocation()) {
+                prefs.edit().putBoolean("continuous_location_enabled", true).apply()
+                startLocationService()
+            } else statusView.text = "لم يتم منح إذن الموقع طوال الوقت؛ لم يتم تفعيل المشاركة المستمرة."
+            return
+        }
         if (requestCode == LOCATION_PERMISSION_REQUEST) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
-                requestCurrentLocation()
+                continueBackgroundPermissionFlow()
             } else {
                 statusView.text = "لم يتم منح إذن الموقع. لن تتم مشاركة موقعك."
             }
@@ -334,5 +395,6 @@ class MainActivity : Activity() {
         const val EXTRA_LOCATION_DEVICE_ID = "eyen_location_device_id"
         private const val LOCATION_PERMISSION_REQUEST = 41
         private const val NOTIFICATION_PERMISSION_REQUEST = 42
+        private const val BACKGROUND_PERMISSION_REQUEST = 43
     }
 }

@@ -517,7 +517,8 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        const val EXTRA_REMOTE_SESSION_ID = "eyen_remote_session_id"\n        const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
+        const val EXTRA_REMOTE_SESSION_ID = "eyen_remote_session_id"
+        const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
         const val EXTRA_LOCATION_DEVICE_ID = "eyen_location_device_id"
         private const val LOCATION_PERMISSION_REQUEST = 41
         private const val NOTIFICATION_PERMISSION_REQUEST = 42

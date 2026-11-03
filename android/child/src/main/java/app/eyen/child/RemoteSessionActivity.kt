@@ -2,6 +2,7 @@ package app.eyen.child
 
 import android.Manifest
 import android.app.Activity
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +25,7 @@ class RemoteSessionActivity : Activity() {
     private lateinit var factory: PeerConnectionFactory
     private var peer: PeerConnection? = null
     private var capturer: CameraVideoCapturer? = null
+    private var cameraHelper: SurfaceTextureHelper? = null
     private var videoSource: VideoSource? = null
     private var audioSource: AudioSource? = null
     private var screenCapturer: ScreenCapturerAndroid? = null
@@ -115,6 +117,10 @@ class RemoteSessionActivity : Activity() {
 
     private fun startRtc() {
         try {
+            if (mode == "camera" || mode == "audio") {
+                val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            }
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(this).createInitializationOptions()
             )
@@ -159,14 +165,35 @@ class RemoteSessionActivity : Activity() {
         val enumerator = Camera2Enumerator(this)
         val name = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
             ?: enumerator.deviceNames.firstOrNull() ?: return
-        capturer = enumerator.createCapturer(name, null)
+        capturer = enumerator.createCapturer(name, object : CameraVideoCapturer.CameraEventsHandler {
+            override fun onCameraError(errorDescription: String?) {
+                android.util.Log.e("EyenRTC", "Camera error: $errorDescription")
+                runOnUiThread { if (!closed) status.text = "تعذر تشغيل الكاميرا: ${errorDescription ?: "خطأ غير معروف"}" }
+            }
+            override fun onCameraDisconnected() {
+                runOnUiThread { if (!closed) status.text = "انقطع اتصال الكاميرا. أوقف الجلسة وأعد المحاولة." }
+            }
+            override fun onCameraFreezed(errorDescription: String?) {
+                runOnUiThread { if (!closed) status.text = "توقفت صورة الكاميرا: ${errorDescription ?: "لا توجد إطارات"}" }
+            }
+            override fun onCameraOpening(cameraName: String?) {
+                runOnUiThread { if (!closed) status.text = "جارٍ فتح كاميرا الجهاز…" }
+            }
+            override fun onFirstFrameAvailable() {
+                runOnUiThread { if (!closed) status.text = "الكاميرا تعمل. جارٍ إرسال الصورة إلى ولي الأمر…" }
+            }
+            override fun onCameraClosed() {
+                android.util.Log.i("EyenRTC", "Camera closed")
+            }
+        })
+        val camera = capturer ?: error("لم يعثر التطبيق على كاميرا متاحة")
         val source = factory.createVideoSource(false)
         videoSource = source
-        val helper = SurfaceTextureHelper.create("EyenCamera", egl.eglBaseContext)
-        capturer?.initialize(helper, this, source.capturerObserver)
-        capturer?.startCapture(640, 480, 20)
+        cameraHelper = SurfaceTextureHelper.create("EyenCamera", egl.eglBaseContext)
+        camera.initialize(cameraHelper, this, source.capturerObserver)
+        camera.startCapture(640, 480, 20)
         val track = factory.createVideoTrack("eyen_video", source)
-        peer?.addTrack(track, listOf("eyen_stream"))
+        check(peer?.addTrack(track, listOf("eyen_stream")) != null) { "تعذر إضافة مسار الفيديو إلى الاتصال" }
     }
 
     private fun requestScreenCapturePermission() {
@@ -276,6 +303,7 @@ class RemoteSessionActivity : Activity() {
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { screenCapturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose(); capturer = null
+        cameraHelper?.dispose(); cameraHelper = null
         screenCapturer?.dispose(); screenCapturer = null
         screenHelper?.dispose(); screenHelper = null
         stopService(Intent(this, MediaProjectionForegroundService::class.java))
@@ -291,8 +319,10 @@ class RemoteSessionActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { screenCapturer?.stopCapture() } catch (_: Exception) {}
-        capturer?.dispose(); screenCapturer?.dispose(); screenHelper?.dispose()
+        capturer?.dispose(); cameraHelper?.dispose(); screenCapturer?.dispose(); screenHelper?.dispose()
         peer?.dispose(); videoSource?.dispose(); audioSource?.dispose()
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        audioManager.mode = AudioManager.MODE_NORMAL
         stopService(Intent(this, MediaProjectionForegroundService::class.java))
         stopService(Intent(this, RemoteMediaForegroundService::class.java))
         if (::factory.isInitialized) factory.dispose()

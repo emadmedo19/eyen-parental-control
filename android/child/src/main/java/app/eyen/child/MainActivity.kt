@@ -21,6 +21,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
 import java.util.concurrent.Executors
@@ -87,7 +88,11 @@ class MainActivity : Activity() {
             "يمكنك تفعيل مشاركة موقعك باستمرار بموافقتك. ستظهر علامة إشعار دائمة أثناء المشاركة، ويمكنك إيقافها من هنا في أي وقت.",
             13f, Color.LTGRAY
         ))
-        setContentView(root)
+        val scrollView = ScrollView(this).apply {
+            isFillViewport = true
+            addView(root)
+        }
+        setContentView(scrollView)
         requestNotificationPermissionIfNeeded()
 
         pairButton.setOnClickListener { claimCode() }
@@ -162,7 +167,10 @@ class MainActivity : Activity() {
         codeInput.visibility = View.GONE
         pairButton.visibility = View.GONE
         shareLocationButton.visibility = View.VISIBLE
+        cameraSetupButton.visibility = View.VISIBLE
+        cameraTestButton.visibility = View.VISIBLE
         updateLocationButton()
+        updateCameraSetupButton()
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
         statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
         deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
@@ -252,6 +260,7 @@ class MainActivity : Activity() {
             updateLocationButton()
         }
         if (prefs.contains("child_token")) {
+            updateCameraSetupButton()
             FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)
             handler.post(heartbeatTask)

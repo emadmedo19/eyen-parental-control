@@ -29,6 +29,8 @@ class RemoteSessionActivity : Activity() {
     private var screenCapturer: ScreenCapturerAndroid? = null
     private var screenHelper: SurfaceTextureHelper? = null
     private var screenPermissionData: Intent? = null
+    private val pendingIce = mutableListOf<IceCandidate>()
+    private var remoteDescriptionSet = false
     private var sessionId = ""
     private var token = ""
     private var mode = "camera"
@@ -69,8 +71,8 @@ class RemoteSessionActivity : Activity() {
             requestScreenCapturePermission()
             return
         }
-        if (mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if ((mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) ||
+            ((mode == "camera" || mode == "audio") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
             showMessage("لم تُمنح أذونات الكاميرا والميكروفون. لم يبدأ أي بث.")
             return
         }
@@ -88,6 +90,14 @@ class RemoteSessionActivity : Activity() {
         root.addView(status); root.addView(stop)
         setContentView(root)
         stop.setOnClickListener { finishSession("أوقفت المشاركة من جهاز الطفل.") }
+        try {
+            val mediaService = Intent(this, RemoteMediaForegroundService::class.java)
+                .putExtra(RemoteMediaForegroundService.EXTRA_MODE, mode)
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(mediaService) else startService(mediaService)
+        } catch (error: Exception) {
+            showMessage("تعذر بدء إشعار حماية الجلسة: ${error.message}")
+            return
+        }
         startRtc()
     }
 
@@ -133,7 +143,7 @@ class RemoteSessionActivity : Activity() {
                 "camera" -> addCameraTrack()
                 "screen" -> addScreenTrack()
             }
-            addAudioTrack()
+            if (mode == "camera" || mode == "audio") addAudioTrack()
             handler.post(poll)
         } catch (e: Exception) {
             runOnUiThread { status.text = "تعذر تهيئة البث: ${e.message}" }
@@ -207,6 +217,9 @@ class RemoteSessionActivity : Activity() {
         peer?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription?) {}
             override fun onSetSuccess() {
+                remoteDescriptionSet = true
+                pendingIce.forEach { peer?.addIceCandidate(it) }
+                pendingIce.clear()
                 peer?.createAnswer(object : SdpObserver {
                     override fun onCreateSuccess(answer: SessionDescription?) {
                         if (answer == null) return
@@ -231,9 +244,10 @@ class RemoteSessionActivity : Activity() {
 
     private fun addIce(p: JSONObject) {
         val candidate = p.optString("candidate")
-        if (candidate.isNotBlank()) peer?.addIceCandidate(
-            IceCandidate(p.optString("sdpMid"), p.optInt("sdpMLineIndex"), candidate)
-        )
+        if (candidate.isNotBlank()) {
+            val ice = IceCandidate(p.optString("sdpMid"), p.optInt("sdpMLineIndex"), candidate)
+            if (remoteDescriptionSet) peer?.addIceCandidate(ice) else pendingIce.add(ice)
+        }
     }
 
     private fun sendSignal(type: String, payload: JSONObject) {
@@ -258,6 +272,7 @@ class RemoteSessionActivity : Activity() {
         screenCapturer?.dispose(); screenCapturer = null
         screenHelper?.dispose(); screenHelper = null
         stopService(Intent(this, MediaProjectionForegroundService::class.java))
+        stopService(Intent(this, RemoteMediaForegroundService::class.java))
         peer?.close(); peer?.dispose(); peer = null
         videoSource?.dispose(); audioSource?.dispose()
         status.text = message
@@ -272,6 +287,7 @@ class RemoteSessionActivity : Activity() {
         capturer?.dispose(); screenCapturer?.dispose(); screenHelper?.dispose()
         peer?.dispose(); videoSource?.dispose(); audioSource?.dispose()
         stopService(Intent(this, MediaProjectionForegroundService::class.java))
+        stopService(Intent(this, RemoteMediaForegroundService::class.java))
         if (::factory.isInitialized) factory.dispose()
         egl.release()
         executor.shutdown()

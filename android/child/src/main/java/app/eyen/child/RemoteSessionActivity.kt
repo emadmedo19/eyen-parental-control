@@ -116,6 +116,40 @@ class RemoteSessionActivity : Activity() {
     }
 
     private fun startRtc() {
+        executor.execute {
+            val iceServers = try {
+                parseIceServers(ApiClient.getRemoteIceServers(sessionId, token))
+            } catch (error: Exception) {
+                android.util.Log.w("EyenRTC", "ICE config unavailable; using STUN fallback", error)
+                defaultIceServers()
+            }
+            runOnUiThread { if (!closed) initializeRtc(iceServers) }
+        }
+    }
+
+    private fun parseIceServers(response: JSONObject): List<PeerConnection.IceServer> {
+        val result = mutableListOf<PeerConnection.IceServer>()
+        val items = response.optJSONArray("iceServers")
+        if (items != null) for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val urls = item.optJSONArray("urls")
+            val urlList = if (urls != null) (0 until urls.length()).mapNotNull { urls.optString(it).takeIf(String::isNotBlank) }
+                else listOf(item.optString("urls")).filter(String::isNotBlank)
+            if (urlList.isEmpty()) continue
+            val builder = PeerConnection.IceServer.builder(urlList)
+            item.optString("username").takeIf(String::isNotBlank)?.let { builder.setUsername(it) }
+            item.optString("credential").takeIf(String::isNotBlank)?.let { builder.setPassword(it) }
+            result.add(builder.createIceServer())
+        }
+        return result.ifEmpty { defaultIceServers() }
+    }
+
+    private fun defaultIceServers(): List<PeerConnection.IceServer> = listOf(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+        PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+    )
+
+    private fun initializeRtc(iceServers: List<PeerConnection.IceServer>) {
         try {
             if (mode == "camera" || mode == "audio") {
                 val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -128,9 +162,7 @@ class RemoteSessionActivity : Activity() {
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
                 .createPeerConnectionFactory()
-            val config = PeerConnection.RTCConfiguration(listOf(
-                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
-            ))
+            val config = PeerConnection.RTCConfiguration(iceServers)
             config.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             peer = factory.createPeerConnection(config, object : PeerConnection.Observer {
                 override fun onSignalingChange(s: PeerConnection.SignalingState?) {}

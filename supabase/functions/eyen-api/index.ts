@@ -500,7 +500,7 @@ Deno.serve(async (req: Request) => {
       return reply(200, { session: data ?? { id: session.id, status: "ended" } });
     }
 
-    const signalMatch = path.match(/^\\/v1\\/remote-sessions\\/([0-9a-f-]+)\\/signals$/i);
+    const signalMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/signals$/i);
     if (signalMatch && (req.method === "GET" || req.method === "POST")) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
         ? req.headers.get("authorization")!.slice(7) : "";

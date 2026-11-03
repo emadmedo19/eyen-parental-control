@@ -500,6 +500,58 @@ Deno.serve(async (req: Request) => {
       return reply(200, { session: data ?? { id: session.id, status: "ended" } });
     }
 
+    const signalMatch = path.match(/^\\/v1\\/remote-sessions\\/([0-9a-f-]+)\\/signals$/i);
+    if (signalMatch && (req.method === "GET" || req.method === "POST")) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
+        ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: session, error: sessionError } = await db.from("eyen_remote_sessions")
+        .select("id, pairing_session_id, child_device_id, status, expires_at")
+        .eq("id", signalMatch[1]).maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!session) return reply(404, { error: "session_not_found" });
+      const tokenHash = await digest(bearer);
+      const { data: parent, error: parentError } = await db.from("pairing_sessions")
+        .select("id").eq("id", session.pairing_session_id).eq("poll_token_hash", tokenHash).maybeSingle();
+      if (parentError) throw parentError;
+      const { data: child, error: childError } = await db.from("pairing_sessions")
+        .select("id").eq("id", session.pairing_session_id)
+        .eq("child_device_id", session.child_device_id).eq("child_token_hash", tokenHash).maybeSingle();
+      if (childError) throw childError;
+      const senderRole = parent ? "parent" : child ? "child" : null;
+      if (!senderRole) return reply(401, { error: "device_token_invalid" });
+      if (session.status !== "approved" && session.status !== "connecting" && session.status !== "active") {
+        return reply(409, { error: "session_not_approved" });
+      }
+      if (new Date(session.expires_at).getTime() <= Date.now()) return reply(410, { error: "session_expired" });
+      if (req.method === "POST") {
+        const body = await req.json().catch(() => ({}));
+        const type = body?.type;
+        const payload = body?.payload;
+        if (!["offer", "answer", "ice", "hangup"].includes(type) || !payload || typeof payload !== "object") {
+          return reply(400, { error: "invalid_signal" });
+        }
+        if (JSON.stringify(payload).length > 16_384) return reply(413, { error: "signal_too_large" });
+        const { data, error } = await db.from("eyen_webrtc_signals").insert({
+          session_id: session.id, sender_role: senderRole, signal_type: type, payload,
+        }).select("id, sender_role, signal_type, payload, created_at").single();
+        if (error) throw error;
+        if (type === "hangup") {
+          await db.from("eyen_remote_sessions").update({
+            status: "ended", ended_at: new Date().toISOString(), end_reason: "peer_hangup",
+          }).eq("id", session.id).in("status", ["approved", "connecting", "active"]);
+        }
+        return reply(201, { signal: data });
+      }
+      const after = Math.max(0, Number(new URL(req.url).searchParams.get("after") || 0));
+      const { data, error } = await db.from("eyen_webrtc_signals")
+        .select("id, sender_role, signal_type, payload, created_at")
+        .eq("session_id", session.id).neq("sender_role", senderRole)
+        .gt("id", after).order("id", { ascending: true }).limit(50);
+      if (error) throw error;
+      return reply(200, { signals: data ?? [] });
+    }
+
     return reply(404, { error: "not_found" });
   } catch (error) {
     console.error("eyen_api_error", error);

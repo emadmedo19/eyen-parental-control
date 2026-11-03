@@ -209,6 +209,12 @@ class MainActivity : Activity() {
                     checkButton.isEnabled = result.optString("status") == "waiting"
                     refreshButton.isEnabled = prefs.contains("child_device_id")
                     requestLocationButton.isEnabled = prefs.contains("child_device_id")
+            cameraRequestButton.isEnabled = prefs.contains("child_device_id")
+            audioRequestButton.isEnabled = prefs.contains("child_device_id")
+            screenRequestButton.isEnabled = prefs.contains("child_device_id")
+                    cameraRequestButton.isEnabled = prefs.contains("child_device_id")
+                    audioRequestButton.isEnabled = prefs.contains("child_device_id")
+                    screenRequestButton.isEnabled = prefs.contains("child_device_id")
                 }
             } catch (error: Exception) {
                 showError(error)

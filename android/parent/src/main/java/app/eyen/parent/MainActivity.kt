@@ -31,6 +31,8 @@ class MainActivity : Activity() {
     private lateinit var refreshButton: Button
     private lateinit var mapButton: Button
     private lateinit var requestLocationButton: Button
+    private lateinit var cameraTestInfo: TextView
+    private lateinit var cameraTestButton: Button
     private var latestLatitude: Double? = null
     private var latestLongitude: Double? = null
     private val prefs by lazy { getSharedPreferences("eyen_parent", MODE_PRIVATE) }
@@ -76,6 +78,11 @@ class MainActivity : Activity() {
         content.addView(refreshButton)
         content.addView(mapButton)
         content.addView(requestLocationButton)
+        content.addView(text("اختبار كاميرا جهاز الطفل", 20f, Color.WHITE))
+        cameraTestInfo = text("المعاينة المحلية متاحة من تطبيق الطفل فقط. البث المباشر إلى ولي الأمر لم يُربط بعد.", 14f, Color.LTGRAY)
+        cameraTestButton = Button(this).apply { text = "طريقة اختبار الكاميرا" }
+        content.addView(cameraTestInfo)
+        content.addView(cameraTestButton)
         content.addView(text(
             "يظهر آخر موقع شاركه الطفل مع وقت تحديثه. عند تفعيل المشاركة المستمرة بموافقته، يتم تحديث الحالة تلقائياً كل دقيقة تقريباً أثناء فتح لوحة ولي الأمر؛ وقد يؤخر Android التحديثات لتوفير البطارية.",
             13f, Color.LTGRAY
@@ -87,6 +94,13 @@ class MainActivity : Activity() {
         refreshButton.setOnClickListener { refreshDeviceStatus() }
         mapButton.setOnClickListener { openLastLocation() }
         requestLocationButton.setOnClickListener { requestChildLocation() }
+        cameraTestButton.setOnClickListener {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("اختبار الكاميرا")
+                .setMessage("افتح تطبيق عين على جهاز الطفل، ثم اختر «اختبار الكاميرا ومعاينتها». ستظهر الصورة على جهاز الطفل نفسه ويمكن إيقافها من زر الإيقاف. هذه معاينة محلية وليست بثًا إلى هاتف ولي الأمر؛ ربط البث المباشر هو الخطوة التالية.")
+                .setPositiveButton("حسنًا", null)
+                .show()
+        }
 
         if (prefs.contains("session_id")) checkButton.isEnabled = true
         if (prefs.contains("child_device_id")) {

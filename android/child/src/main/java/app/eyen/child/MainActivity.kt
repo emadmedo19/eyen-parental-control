@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var pairButton: Button
     private lateinit var shareLocationButton: Button
     private lateinit var cameraSetupButton: Button
+    private lateinit var cameraTestButton: Button
     private lateinit var deviceView: TextView
     private val prefs by lazy { getSharedPreferences("eyen_child", MODE_PRIVATE) }
     private val heartbeatTask = object : Runnable {
@@ -69,6 +70,7 @@ class MainActivity : Activity() {
         deviceView = text("", 14f, Color.WHITE)
         shareLocationButton = Button(this).apply { text = "إعداد مشاركة الموقع المستمرة"; visibility = View.GONE }
         cameraSetupButton = Button(this).apply { text = "إعداد أذونات الكاميرا والميكروفون"; visibility = View.GONE }
+        cameraTestButton = Button(this).apply { text = "اختبار الكاميرا ومعاينتها"; visibility = View.GONE }
 
         root.addView(codeInput)
         root.addView(pairButton)
@@ -76,6 +78,7 @@ class MainActivity : Activity() {
         root.addView(deviceView)
         root.addView(shareLocationButton)
         root.addView(cameraSetupButton)
+        root.addView(cameraTestButton)
         root.addView(text(
             "الكاميرا والميكروفون لا يعملان تلقائيًا. لن تبدأ أي جلسة إلا بإشعار واضح، ويمكنك إيقافها في أي وقت.",
             13f, Color.LTGRAY
@@ -89,6 +92,7 @@ class MainActivity : Activity() {
 
         pairButton.setOnClickListener { claimCode() }
         cameraSetupButton.setOnClickListener { confirmCameraSetup() }
+        cameraTestButton.setOnClickListener { openCameraTest() }
         shareLocationButton.setOnClickListener {
             if (prefs.getBoolean("continuous_location_enabled", false)) stopContinuousLocation() else confirmLocationShare()
         }
@@ -162,6 +166,16 @@ class MainActivity : Activity() {
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
         statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
         deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
+    }
+
+    private fun openCameraTest() {
+        val cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted) {
+            statusView.text = "فعّل إذن الكاميرا أولاً من زر إعداد الأذونات."
+            confirmCameraSetup()
+            return
+        }
+        startActivity(Intent(this, CameraPreviewActivity::class.java))
     }
 
     private fun confirmCameraSetup() {

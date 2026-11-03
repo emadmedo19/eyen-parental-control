@@ -1,6 +1,7 @@
 package app.eyen.parent
 
 import android.app.Activity
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -78,6 +79,10 @@ class RemoteSessionActivity : Activity() {
 
     private fun startRtc(mode: String) {
         try {
+            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = true
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(this).createInitializationOptions()
             )
@@ -206,6 +211,10 @@ class RemoteSessionActivity : Activity() {
         peer?.close(); peer?.dispose()
         if (::renderer.isInitialized) { renderer.release() }
         if (::factory.isInitialized) factory.dispose()
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+        audioManager.mode = AudioManager.MODE_NORMAL
         egl.release()
         executor.shutdown()
         super.onDestroy()

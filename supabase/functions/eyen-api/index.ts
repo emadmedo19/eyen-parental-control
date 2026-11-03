@@ -425,7 +425,7 @@ Deno.serve(async (req: Request) => {
       return reply(200, { session: data ?? null });
     }
 
-    const remoteStatusMatch = path.match(/^\\/v1\\/remote-sessions\\/([0-9a-f-]+)$/i);
+    const remoteStatusMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)$/i);
     if (req.method === "GET" && remoteStatusMatch) {
       const bearer = req.headers.get("authorization")?.startsWith("Bearer ")
         ? req.headers.get("authorization")!.slice(7) : "";

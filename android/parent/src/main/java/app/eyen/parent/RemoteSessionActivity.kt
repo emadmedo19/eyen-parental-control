@@ -34,7 +34,7 @@ class RemoteSessionActivity : Activity() {
                     if (signals != null) for (i in 0 until signals.length()) {
                         val item = signals.optJSONObject(i) ?: continue
                         cursor = maxOf(cursor, item.optLong("id", cursor))
-                        when (item.optString("type")) {
+                        when (item.optString("signal_type")) {
                             "answer" -> acceptAnswer(item.optJSONObject("payload") ?: JSONObject())
                             "ice" -> addIce(item.optJSONObject("payload") ?: JSONObject())
                             "hangup" -> runOnUiThread { finishSession("انتهت الجلسة من جهاز الطفل.") }

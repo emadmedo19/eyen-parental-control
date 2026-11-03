@@ -39,3 +39,8 @@ android {
 kotlin {
     jvmToolchain(17)
 }
+
+dependencies {
+    implementation("io.github.webrtc-sdk:android:150.7871.04")
+    implementation("androidx.activity:activity-ktx:1.10.1")
+}

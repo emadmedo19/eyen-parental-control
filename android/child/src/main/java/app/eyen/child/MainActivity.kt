@@ -111,6 +111,50 @@ class MainActivity : Activity() {
         handleLocationRequestIntent(intent)
     }
 
+
+    private fun checkPendingRemoteSession() {
+        val deviceId = prefs.getString("child_device_id", null) ?: return
+        val token = prefs.getString("child_token", null) ?: return
+        executor.execute {
+            try {
+                val session = ApiClient.pendingRemoteSession(deviceId, token).optJSONObject("session") ?: return@execute
+                val id = session.optString("id")
+                if (prefs.getString("last_remote_prompt_id", null) == id) return@execute
+                prefs.edit().putString("last_remote_prompt_id", id).apply()
+                val mode = session.optString("mode")
+                runOnUiThread {
+                    val label = when (mode) { "camera" -> "الكاميرا"; "audio" -> "الميكروفون"; "screen" -> "مشاركة الشاشة"; else -> "ميزة الجهاز" }
+                    AlertDialog.Builder(this)
+                        .setTitle("طلب من ولي الأمر")
+                        .setMessage("ولي الأمر يطلب استخدام $label. لن يبدأ أي تشغيل قبل موافقتك، ويمكنك الرفض.")
+                        .setNegativeButton("رفض") { _, _ -> sendRemoteDecision(id, "rejected") }
+                        .setPositiveButton("موافقة") { _, _ -> sendRemoteDecision(id, "approved") }
+                        .setOnCancelListener { sendRemoteDecision(id, "rejected") }
+                        .show()
+                }
+            } catch (error: Exception) {
+                android.util.Log.w("EyenRemote", "Pending session check failed", error)
+            }
+        }
+    }
+
+    private fun sendRemoteDecision(id: String, decision: String) {
+        val token = prefs.getString("child_token", null) ?: return
+        executor.execute {
+            try {
+                ApiClient.decideRemoteSession(id, token, decision)
+                runOnUiThread {
+                    statusView.text = if (decision == "approved")
+                        "تم تسجيل موافقتك. ميزة البث المباشر لم تُفعّل بعد."
+                    else "تم رفض طلب ولي الأمر."
+                }
+            } catch (error: Exception) {
+                prefs.edit().remove("last_remote_prompt_id").apply()
+                runOnUiThread { statusView.text = "تعذر تسجيل الرد: " + (error.message ?: "خطأ اتصال") }
+            }
+        }
+    }
+
     private fun handleLocationRequestIntent(intent: Intent?) {
         val requestId = intent?.getStringExtra(EXTRA_LOCATION_REQUEST_ID) ?: return
         val deviceId = intent.getStringExtra(EXTRA_LOCATION_DEVICE_ID) ?: return
@@ -472,7 +516,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
+        const val EXTRA_REMOTE_SESSION_ID = "eyen_remote_session_id"\n        const val EXTRA_LOCATION_REQUEST_ID = "eyen_location_request_id"
         const val EXTRA_LOCATION_DEVICE_ID = "eyen_location_device_id"
         private const val LOCATION_PERMISSION_REQUEST = 41
         private const val NOTIFICATION_PERMISSION_REQUEST = 42

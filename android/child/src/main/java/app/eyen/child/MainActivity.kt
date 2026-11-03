@@ -113,6 +113,9 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLocationRequestIntent(intent)
+        if (prefs.contains("child_token") && intent.getStringExtra(EXTRA_REMOTE_SESSION_ID) != null) {
+            checkPendingRemoteSession()
+        }
     }
 
 

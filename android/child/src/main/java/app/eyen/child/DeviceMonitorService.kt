@@ -32,8 +32,9 @@ class DeviceMonitorService : Service() {
                         if (session != null) {
                             val id = session.optString("id")
                             if (id.isNotBlank() && prefs.getString("last_remote_notice_id", null) != id) {
-                                prefs.edit().putString("last_remote_notice_id", id).apply()
-                                showRemoteRequestNotification(id, session.optString("mode"))
+                                if (showRemoteRequestNotification(id, session.optString("mode"))) {
+                                    prefs.edit().putString("last_remote_notice_id", id).apply()
+                                }
                             }
                         }
                     } catch (error: Exception) {
@@ -93,7 +94,7 @@ class DeviceMonitorService : Service() {
         }
     }
 
-    private fun showRemoteRequestNotification(sessionId: String, mode: String) {
+    private fun showRemoteRequestNotification(sessionId: String, mode: String): Boolean {
         val label = when (mode) {
             "camera" -> "الكاميرا"
             "audio" -> "الميكروفون"
@@ -126,8 +127,10 @@ class DeviceMonitorService : Service() {
             .build()
         try {
             manager.notify(sessionId.hashCode(), notification)
-        } catch (error: SecurityException) {
-            Log.w("EyenMonitor", "Cannot show remote request notification", error)
+            return true
+        } catch (error: Exception) {
+            Log.e("EyenMonitor", "Cannot show remote request notification; will retry", error)
+            return false
         }
     }
 

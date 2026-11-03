@@ -536,9 +536,12 @@ class MainActivity : Activity() {
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             val cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val allMediaReady = cameraGranted && audioGranted && notificationsGranted
+            prefs.edit().putBoolean("remote_media_preapproved", allMediaReady).apply()
+            updateRemoteMediaConsentButton()
             statusView.text = when {
-                cameraGranted && audioGranted && notificationsGranted -> "اكتمل إعداد أذونات الكاميرا والميكروفون والإشعارات. مشاركة الشاشة تظل بموافقة Android لكل جلسة."
-                cameraGranted && audioGranted -> "تم منح الكاميرا والميكروفون، لكن إذن الإشعارات لم يُمنح."
+                allMediaReady -> "اكتمل الإعداد. طلبات الكاميرا والميكروفون ستُقبل تلقائيًا بعد فتح إشعار الطلب. يمكنك إيقاف السماح المسبق من الزر المخصص. مشاركة الشاشة تتطلب موافقة Android لكل جلسة."
+                cameraGranted && audioGranted -> "تم منح الكاميرا والميكروفون، لكن الإشعارات غير مفعّلة؛ لم يتم تشغيل السماح المسبق."
                 cameraGranted -> "تم منح إذن الكاميرا فقط. إذن الميكروفون لم يُمنح."
                 audioGranted -> "تم منح إذن الميكروفون فقط. إذن الكاميرا لم يُمنح."
                 else -> "لم يتم منح أذونات الكاميرا والميكروفون."

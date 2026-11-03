@@ -163,21 +163,31 @@ class MainActivity : Activity() {
         val requestId = intent?.getStringExtra(EXTRA_LOCATION_REQUEST_ID) ?: return
         val deviceId = intent.getStringExtra(EXTRA_LOCATION_DEVICE_ID) ?: return
         if (deviceId != prefs.getString("child_device_id", null)) return
+
+        // A prior explicit opt-in to continuous location sharing also authorizes
+        // subsequent parent-initiated one-shot location refreshes. The foreground
+        // location service keeps its persistent Android notification visible.
+        if (prefs.getBoolean("continuous_location_enabled", false) && hasBackgroundLocation()) {
+            prefs.edit().putString("active_location_request_id", requestId).apply()
+            intent.removeExtra(EXTRA_LOCATION_REQUEST_ID)
+            intent.removeExtra(EXTRA_LOCATION_DEVICE_ID)
+            requestCurrentLocation()
+            return
+        }
+
         AlertDialog.Builder(this)
             .setTitle("طلب مشاركة الموقع")
-            .setMessage("ولي الأمر طلب موقعك الحالي. هل توافق على مشاركة موقعك مرة واحدة؟")
-            .setNegativeButton("رفض") { _, _ ->
-                statusView.text = "تم رفض طلب مشاركة الموقع."
+            .setMessage("لم يتم تفعيل مشاركة الموقع مسبقًا. يمكنك تفعيلها من إعدادات مشاركة الموقع، وستظل حالة المشاركة ظاهرة بإشعار مستمر ويمكنك إيقافها في أي وقت.")
+            .setNegativeButton("ليس الآن") { _, _ ->
+                statusView.text = "لم تتم مشاركة الموقع."
                 intent.removeExtra(EXTRA_LOCATION_REQUEST_ID)
                 intent.removeExtra(EXTRA_LOCATION_DEVICE_ID)
             }
-            .setPositiveButton("موافقة") { _, _ ->
-                prefs.edit().putString("active_location_request_id", requestId).apply()
+            .setPositiveButton("إعداد المشاركة") { _, _ ->
                 intent.removeExtra(EXTRA_LOCATION_REQUEST_ID)
                 intent.removeExtra(EXTRA_LOCATION_DEVICE_ID)
-                confirmLocationShareAfterRemoteApproval()
+                confirmLocationShare()
             }
-            .setOnCancelListener { statusView.text = "لم تتم مشاركة الموقع." }
             .show()
     }
 

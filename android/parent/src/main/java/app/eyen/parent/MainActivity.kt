@@ -47,6 +47,48 @@ class MainActivity : Activity() {
         }
     }
 
+    private val remoteSessionPolling = object : Runnable {
+        override fun run() {
+            val sessionId = prefs.getString("remote_session_id", null)
+            val token = prefs.getString("poll_token", null)
+            if (sessionId.isNullOrBlank() || token.isNullOrBlank()) return
+            executor.execute {
+                try {
+                    val session = ApiClient.getRemoteSession(sessionId, token).optJSONObject("session")
+                    if (session == null) return@execute
+                    val state = session.optString("status")
+                    val mode = when (session.optString("mode")) {
+                        "camera" -> "الكاميرا"
+                        "audio" -> "الميكروفون"
+                        "screen" -> "مشاركة الشاشة"
+                        else -> "الجلسة"
+                    }
+                    runOnUiThread {
+                        statusView.text = when (state) {
+                            "requested" -> "طلب $mode اتبعت. في انتظار موافقة الطفل..."
+                            "approved" -> "الطفل وافق على $mode. البث المباشر لم يبدأ بعد."
+                            "connecting" -> "تمت الموافقة. جاري تجهيز الاتصال..."
+                            "active" -> "جلسة $mode نشطة."
+                            "rejected" -> "الطفل رفض طلب $mode."
+                            "expired" -> "انتهت مهلة طلب $mode دون رد."
+                            "ended" -> "تم إنهاء جلسة $mode."
+                            "failed" -> "تعذر بدء جلسة $mode."
+                            else -> "حالة الجلسة: $state"
+                        }
+                    }
+                    if (state in listOf("requested", "approved", "connecting", "active")) {
+                        statusHandler.postDelayed(this, 2500L)
+                    } else {
+                        prefs.edit().remove("remote_session_id").apply()
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread { statusView.text = "تعذر تحديث حالة الطلب: " + (error.message ?: "خطأ اتصال") }
+                    statusHandler.postDelayed(this, 5000L)
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val content = LinearLayout(this).apply {
@@ -132,11 +174,16 @@ class MainActivity : Activity() {
         if (prefs.contains("child_device_id")) {
             statusHandler.removeCallbacks(statusPolling)
             statusHandler.post(statusPolling)
+            if (prefs.contains("remote_session_id")) {
+                statusHandler.removeCallbacks(remoteSessionPolling)
+                statusHandler.post(remoteSessionPolling)
+            }
         }
     }
 
     override fun onPause() {
         statusHandler.removeCallbacks(statusPolling)
+        statusHandler.removeCallbacks(remoteSessionPolling)
         super.onPause()
     }
 
@@ -209,9 +256,6 @@ class MainActivity : Activity() {
                     checkButton.isEnabled = result.optString("status") == "waiting"
                     refreshButton.isEnabled = prefs.contains("child_device_id")
                     requestLocationButton.isEnabled = prefs.contains("child_device_id")
-            cameraRequestButton.isEnabled = prefs.contains("child_device_id")
-            audioRequestButton.isEnabled = prefs.contains("child_device_id")
-            screenRequestButton.isEnabled = prefs.contains("child_device_id")
                     cameraRequestButton.isEnabled = prefs.contains("child_device_id")
                     audioRequestButton.isEnabled = prefs.contains("child_device_id")
                     screenRequestButton.isEnabled = prefs.contains("child_device_id")
@@ -257,12 +301,20 @@ class MainActivity : Activity() {
                 val result = ApiClient.requestRemoteSession(childId, token, mode)
                 val push = result.optJSONObject("push")
                 val sent = push?.optBoolean("sent", false) == true
+                val sessionId = result.optJSONObject("session")?.optString("id")
+                if (!sessionId.isNullOrBlank()) {
+                    prefs.edit().putString("remote_session_id", sessionId).apply()
+                }
                 runOnUiThread {
                     statusView.text = if (sent) "تم إرسال طلب $label. في انتظار موافقة الطفل." else
                         "تم تسجيل طلب $label، لكن تعذر إرسال إشعار للجهاز: " + (push?.optString("reason", "غير معروف") ?: "غير معروف")
                     cameraRequestButton.isEnabled = true
                     audioRequestButton.isEnabled = true
                     screenRequestButton.isEnabled = true
+                    if (!sessionId.isNullOrBlank()) {
+                        statusHandler.removeCallbacks(remoteSessionPolling)
+                        statusHandler.post(remoteSessionPolling)
+                    }
                 }
             } catch (error: Exception) {
                 runOnUiThread {

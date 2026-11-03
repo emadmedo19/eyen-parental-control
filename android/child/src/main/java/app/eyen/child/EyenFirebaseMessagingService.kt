@@ -18,7 +18,33 @@ class EyenFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        if (message.data["type"] != "LOCATION_REQUEST") {
+        val type = message.data["type"]
+        if (type == "REMOTE_SESSION_REQUEST") {
+            val sessionId = message.data["sessionId"] ?: return
+            val mode = message.data["mode"] ?: return
+            val open = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(MainActivity.EXTRA_REMOTE_SESSION_ID, sessionId)
+            }
+            val pending = PendingIntent.getActivity(this, sessionId.hashCode(), open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val label = when (mode) { "camera" -> "الكاميرا"; "audio" -> "الميكروفون"; "screen" -> "مشاركة الشاشة"; else -> "جلسة جديدة" }
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "طلبات عين", NotificationManager.IMPORTANCE_HIGH))
+            }
+            val notification = android.app.Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("طلب من ولي الأمر")
+                .setContentText("طلب استخدام $label. افتح التطبيق للمراجعة.")
+                .setContentIntent(pending).setAutoCancel(true)
+                .setCategory(android.app.Notification.CATEGORY_STATUS).build()
+            try { manager.notify(sessionId.hashCode(), notification) } catch (error: SecurityException) {
+                Log.w("EyenFCM", "Notification permission is not granted", error)
+            }
+            return
+        }
+        if (type != "LOCATION_REQUEST") {
             Log.i("EyenFCM", "Ignored unsupported Eyen message")
             return
         }

@@ -388,7 +388,10 @@ class MainActivity : Activity() {
             val serviceIntent = Intent(this, DeviceMonitorService::class.java)
             if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
         } catch (error: Exception) {
-            android.util.Log.w("EyenMonitor", "Could not start background monitoring service", error)
+            android.util.Log.e("EyenMonitor", "Could not start background monitoring service", error)
+            if (::statusView.isInitialized) {
+                statusView.text = "تعذر تشغيل المتابعة في الخلفية: " + (error.message ?: "خطأ في النظام")
+            }
         }
     }
 

@@ -105,7 +105,10 @@ class MainActivity : Activity() {
             if (prefs.getBoolean("continuous_location_enabled", false)) stopContinuousLocation() else confirmLocationShare()
         }
 
-        if (prefs.contains("child_token")) showPairedState()
+        if (prefs.contains("child_token")) {
+            showPairedState()
+            startDeviceMonitorService()
+        }
         handleLocationRequestIntent(intent)
     }
 
@@ -246,7 +249,7 @@ class MainActivity : Activity() {
         updateCameraSetupButton()
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
         statusView.text = "الجهاز مرتبط بحساب ولي الأمر."
-        deviceView.text = "الجهاز: $model\nتحديث الحالة يعمل أثناء فتح التطبيق."
+        deviceView.text = "الجهاز: $model\nالمتابعة تعمل في الخلفية بإشعار ظاهر."
     }
 
     private fun openCameraTest() {
@@ -343,6 +346,7 @@ class MainActivity : Activity() {
                     statusView.text = "تم الربط بنجاح. يمكنك إرسال موقعك الحالي بموافقتك."
                     sendHeartbeat()
                     FcmTokenRegistrar.refresh(this@MainActivity)
+                    startDeviceMonitorService()
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -369,13 +373,23 @@ class MainActivity : Activity() {
             updateCameraSetupButton()
             FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)
-            handler.post(heartbeatTask)
+            startDeviceMonitorService()
         }
     }
 
     override fun onPause() {
         handler.removeCallbacks(heartbeatTask)
         super.onPause()
+    }
+
+    private fun startDeviceMonitorService() {
+        if (!prefs.contains("child_token")) return
+        try {
+            val serviceIntent = Intent(this, DeviceMonitorService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(serviceIntent) else startService(serviceIntent)
+        } catch (error: Exception) {
+            android.util.Log.w("EyenMonitor", "Could not start background monitoring service", error)
+        }
     }
 
     private fun batterySnapshot(): Pair<Int, Boolean> {

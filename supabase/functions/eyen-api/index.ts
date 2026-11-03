@@ -370,6 +370,108 @@ Deno.serve(async (req: Request) => {
       return reply(200, { requestId: command.id, status: command.status, expiresAt: command.expires_at, location: command.result });
     }
 
+
+    // Remote session control plane. Media is never captured or relayed by this API.
+    const remoteCreateMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/remote-sessions$/i);
+    if (req.method === "POST" && remoteCreateMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ") ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: device, error: deviceError } = await db.from("pairing_sessions")
+        .select("id, child_device_id, fcm_token").eq("child_device_id", remoteCreateMatch[1])
+        .eq("poll_token_hash", await digest(bearer)).not("claimed_at", "is", null).maybeSingle();
+      if (deviceError) throw deviceError;
+      if (!device) return reply(404, { error: "device_not_found" });
+      const body = await req.json().catch(() => ({}));
+      const mode = body?.mode;
+      if (!["camera", "audio", "screen"].includes(mode)) return reply(400, { error: "invalid_mode" });
+      await db.from("eyen_remote_sessions").update({ status: "expired", ended_at: new Date().toISOString(), end_reason: "expired" })
+        .eq("child_device_id", remoteCreateMatch[1]).in("status", ["requested", "approved", "connecting"])
+        .lt("expires_at", new Date().toISOString());
+      const { data: active } = await db.from("eyen_remote_sessions").select("id")
+        .eq("child_device_id", remoteCreateMatch[1]).in("status", ["requested", "approved", "connecting", "active"]).limit(1).maybeSingle();
+      if (active) return reply(409, { error: "remote_session_already_active" });
+      const { data: session, error } = await db.from("eyen_remote_sessions").insert({
+        pairing_session_id: device.id, child_device_id: device.child_device_id,
+        parent_user_id: "00000000-0000-0000-0000-000000000000", mode,
+        expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      }).select("id, mode, status, requested_at, expires_at").single();
+      // Legacy pairing credentials do not identify an auth.users account. Keep the
+      // session bound to the verified pairing row; user_id login is a separate rollout.
+      if (error) {
+        if (error.code === "23503") return reply(409, { error: "account_login_required_for_remote_sessions" });
+        throw error;
+      }
+      let push = { sent: false, reason: "device_has_no_fcm_token" };
+      if (device.fcm_token) push = await sendFcmData(device.fcm_token, {
+        type: "REMOTE_SESSION_REQUEST", sessionId: session.id, deviceId: device.child_device_id, mode,
+      });
+      return reply(201, { session, push });
+    }
+
+    const childRemoteMatch = path.match(/^\/v1\/devices\/([0-9a-f-]+)\/remote-sessions\/pending$/i);
+    if (req.method === "GET" && childRemoteMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ") ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: device, error: de } = await db.from("pairing_sessions").select("child_device_id")
+        .eq("child_device_id", childRemoteMatch[1]).eq("child_token_hash", await digest(bearer))
+        .not("claimed_at", "is", null).maybeSingle();
+      if (de) throw de;
+      if (!device) return reply(401, { error: "device_token_invalid" });
+      const { data, error } = await db.from("eyen_remote_sessions")
+        .select("id, mode, status, requested_at, expires_at")
+        .eq("child_device_id", childRemoteMatch[1]).eq("status", "requested")
+        .gt("expires_at", new Date().toISOString()).order("requested_at", { ascending: true }).limit(1).maybeSingle();
+      if (error) throw error;
+      return reply(200, { session: data ?? null });
+    }
+
+    const remoteDecisionMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/decision$/i);
+    if (req.method === "POST" && remoteDecisionMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ") ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const body = await req.json().catch(() => ({}));
+      if (!["approved", "rejected"].includes(body?.decision)) return reply(400, { error: "invalid_decision" });
+      const { data: session, error: se } = await db.from("eyen_remote_sessions").select("id, child_device_id, status, expires_at")
+        .eq("id", remoteDecisionMatch[1]).maybeSingle();
+      if (se) throw se;
+      if (!session || session.status !== "requested" || new Date(session.expires_at).getTime() < Date.now()) return reply(404, { error: "session_not_pending" });
+      const { data: device, error: de } = await db.from("pairing_sessions").select("child_device_id")
+        .eq("child_device_id", session.child_device_id).eq("child_token_hash", await digest(bearer)).maybeSingle();
+      if (de) throw de;
+      if (!device) return reply(401, { error: "device_token_invalid" });
+      const update = body.decision === "approved"
+        ? { status: "approved", approved_at: new Date().toISOString() }
+        : { status: "rejected", ended_at: new Date().toISOString(), end_reason: "child_rejected" };
+      const { data, error } = await db.from("eyen_remote_sessions").update(update)
+        .eq("id", session.id).eq("status", "requested").select("id, status, mode").maybeSingle();
+      if (error) throw error;
+      if (!data) return reply(409, { error: "session_state_changed" });
+      return reply(200, { session: data });
+    }
+
+    const remoteEndMatch = path.match(/^\/v1\/remote-sessions\/([0-9a-f-]+)\/end$/i);
+    if (req.method === "POST" && remoteEndMatch) {
+      const bearer = req.headers.get("authorization")?.startsWith("Bearer ") ? req.headers.get("authorization")!.slice(7) : "";
+      if (!bearer) return reply(401, { error: "unauthorized" });
+      const { data: session, error } = await db.from("eyen_remote_sessions")
+        .select("id, child_device_id, status").eq("id", remoteEndMatch[1]).maybeSingle();
+      if (error) throw error;
+      if (!session) return reply(404, { error: "session_not_found" });
+      const hash = await digest(bearer);
+      const { data: parent } = await db.from("pairing_sessions").select("id")
+        .eq("id", (await db.from("eyen_remote_sessions").select("pairing_session_id").eq("id", session.id).single()).data?.pairing_session_id)
+        .eq("poll_token_hash", hash).maybeSingle();
+      const { data: child } = await db.from("pairing_sessions").select("id")
+        .eq("child_device_id", session.child_device_id).eq("child_token_hash", hash).maybeSingle();
+      if (!parent && !child) return reply(401, { error: "device_token_invalid" });
+      const { data, error: updateError } = await db.from("eyen_remote_sessions").update({
+        status: "ended", ended_at: new Date().toISOString(), end_reason: "user_stopped",
+      }).eq("id", session.id).in("status", ["requested", "approved", "connecting", "active"])
+        .select("id, status").maybeSingle();
+      if (updateError) throw updateError;
+      return reply(200, { session: data ?? { id: session.id, status: "ended" } });
+    }
+
     return reply(404, { error: "not_found" });
   } catch (error) {
     console.error("eyen_api_error", error);

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjection
 import android.content.Intent
 import android.view.Gravity
 import android.widget.Button
@@ -184,7 +185,7 @@ class RemoteSessionActivity : Activity() {
         screenCapturer = ScreenCapturerAndroid(data, object : MediaProjection.Callback() {
             override fun onStop() { runOnUiThread { finishSession("أوقف Android مشاركة الشاشة.") } }
         })
-        screenCapturer?.initialize(screenHelper, applicationContext, source.capturerObserver)
+        screenCapturer?.initialize(screenHelper!!, applicationContext, source.capturerObserver)
         val metrics = resources.displayMetrics
         val width = (metrics.widthPixels / 2).coerceAtLeast(360)
         val height = (metrics.heightPixels / 2).coerceAtLeast(640)

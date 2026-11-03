@@ -67,15 +67,8 @@ class RemoteSessionActivity : Activity() {
         mode = intent.getStringExtra("mode") ?: "camera"
         token = getSharedPreferences("eyen_child", MODE_PRIVATE).getString("child_token", "").orEmpty()
         if (sessionId.isBlank() || token.isBlank()) { finish(); return }
-        if (mode == "screen") {
-            requestScreenCapturePermission()
-            return
-        }
-        if ((mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) ||
-            ((mode == "camera" || mode == "audio") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
-            showMessage("لم تُمنح أذونات الكاميرا والميكروفون. لم يبدأ أي بث.")
-            return
-        }
+        // Prepare status UI before requesting Android screen-capture consent.
+        // Screen mode callbacks also update this view after permission is granted.
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -83,13 +76,25 @@ class RemoteSessionActivity : Activity() {
             setBackgroundColor(0xff0c182c.toInt())
         }
         status = TextView(this).apply {
-            text = "الجلسة بموافقتك قيد الاتصال…\nستظل الكاميرا والميكروفون ظاهرين أثناء البث."
+            text = if (mode == "screen") "في انتظار موافقة Android على مشاركة الشاشة…"
+                else "الجلسة بموافقتك قيد الاتصال…\\nستظل الكاميرا والميكروفون ظاهرين أثناء البث."
             setTextColor(-1); textSize = 18f; gravity = Gravity.CENTER
         }
         val stop = Button(this).apply { text = "إنهاء المشاركة الآن" }
         root.addView(status); root.addView(stop)
         setContentView(root)
         stop.setOnClickListener { finishSession("أوقفت المشاركة من جهاز الطفل.") }
+
+        if (mode == "screen") {
+            requestScreenCapturePermission()
+            return
+        }
+        if ((mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) ||
+            ((mode == "camera" || mode == "audio") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
+            showMessage("لم تُمنح أذونات الكاميرا والميكروفون. لم يبدأ أي بث.")
+            finishSession("لم تبدأ المشاركة لعدم توفر الأذونات.")
+            return
+        }
         try {
             val mediaService = Intent(this, RemoteMediaForegroundService::class.java)
                 .putExtra(RemoteMediaForegroundService.EXTRA_MODE, mode)
@@ -175,6 +180,7 @@ class RemoteSessionActivity : Activity() {
         if (requestCode != SCREEN_CAPTURE_REQUEST) return
         if (resultCode != RESULT_OK || data == null) {
             showMessage("لم تتم الموافقة على مشاركة الشاشة؛ لم يبدأ أي بث.")
+            finishSession("رفضت موافقة مشاركة الشاشة.")
             return
         }
         screenPermissionData = data
@@ -184,6 +190,7 @@ class RemoteSessionActivity : Activity() {
             startRtc()
         } catch (error: Exception) {
             showMessage("تعذر بدء خدمة مشاركة الشاشة: ${error.message}")
+            finishSession("تعذر بدء خدمة مشاركة الشاشة.")
         }
     }
 

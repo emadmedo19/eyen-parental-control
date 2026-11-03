@@ -2,7 +2,7 @@
 
 ## Components
 1. Parent app: paired-device dashboard, status refresh, and explicit parent actions.
-2. Child app: pairing, foreground status heartbeat, and one-time location sharing initiated on the child device.
+2. Child app: pairing, foreground status heartbeat, and consent-based location sharing through a visible Android location foreground service.
 3. Supabase: dedicated PostgreSQL database and Edge Function API for pairing and device status.
 4. Future WebRTC layer: peer-to-peer sessions where possible, TURN relay only when required.
 
@@ -13,11 +13,14 @@
 - Pairing codes and bearer secrets are stored as peppered SHA-256 digests.
 - The active backend is the dedicated Eyen Supabase project. The Node.js server under `server/` is a retained prototype, not the active deployed API.
 
-## Implemented second slice — device status and one-time location
+## Implemented second slice — device status and consent-based location
 - Parent dashboard can refresh a paired device's last-seen time, battery percentage and charging state.
-- Child app sends a heartbeat once per minute only while the app is in the foreground.
-- Child can explicitly share a one-time current location after an in-app explanation and Android runtime permission.
-- The location is not collected in the background. Parent can open the last shared location in a maps app.
+- Child app sends a heartbeat once per minute while the app is in the foreground.
+- Child can explicitly enable continuous location sharing after an in-app disclosure and Android location permissions, including the separate background-location setting where required.
+- While enabled, a visible location foreground service posts an ongoing notification and sends location-bearing heartbeats approximately every 60 seconds. The child can stop sharing from the child app.
+- Android may defer updates due to Doze, battery optimization, disabled location services, connectivity, permission changes, or force-stop. A one-minute interval is best-effort, not guaranteed.
+- Parent dashboard refreshes device status approximately once per minute while the parent app is foregrounded and displays the last location update time.
+- Parent can open the last shared location in a maps app.
 - Database changes are in `supabase/migrations/`; the active API is `supabase/functions/eyen-api/index.ts`.
 
 ## Next milestones

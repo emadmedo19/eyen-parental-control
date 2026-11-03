@@ -15,6 +15,10 @@ internal object ApiClient {
     fun heartbeat(deviceId: String, token: String, body: JSONObject): JSONObject =
         request("POST", "/v1/devices/$deviceId/heartbeat", body, token)
 
+    fun pendingRemoteSession(deviceId: String, childToken: String): JSONObject = request("GET", "/v1/devices/$deviceId/remote-sessions/pending", null, childToken)
+
+    fun decideRemoteSession(sessionId: String, childToken: String, decision: String): JSONObject = request("POST", "/v1/remote-sessions/$sessionId/decision", JSONObject().put("decision", decision), childToken)
+
     fun registerFcmToken(deviceId: String, childToken: String, fcmToken: String): JSONObject =
         request("POST", "/v1/devices/$deviceId/fcm-token", JSONObject().put("token", fcmToken), childToken)
 

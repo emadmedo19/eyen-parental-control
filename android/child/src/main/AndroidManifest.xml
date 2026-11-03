@@ -10,11 +10,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:label="عين - جهاز الطفل" android:allowBackup="false"
         android:usesCleartextTraffic="false">
         <service android:name=".LocationSharingService" android:exported="false" android:foregroundServiceType="location" />
         <service android:name=".MediaProjectionForegroundService" android:exported="false" android:foregroundServiceType="mediaProjection" />
+        <service android:name=".RemoteMediaForegroundService" android:exported="false" android:foregroundServiceType="camera|microphone" />
         <service android:name=".EyenFirebaseMessagingService" android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />

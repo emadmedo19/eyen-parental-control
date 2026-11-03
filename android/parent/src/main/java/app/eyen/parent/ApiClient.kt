@@ -13,6 +13,11 @@ internal object ApiClient {
     fun get(path: String, bearer: String): JSONObject = request("GET", path, null, bearer)
     fun requestLocation(deviceId: String, bearer: String): JSONObject = request("POST", "/v1/devices/$deviceId/location-requests", JSONObject(), bearer)
     fun requestRemoteSession(deviceId: String, bearer: String, mode: String): JSONObject = request("POST", "/v1/devices/$deviceId/remote-sessions", JSONObject().put("mode", mode), bearer)
+    fun sendRemoteSignal(sessionId: String, parentToken: String, type: String, payload: JSONObject): JSONObject =
+        request("POST", "/v1/remote-sessions/$sessionId/signals", JSONObject().put("type", type).put("payload", payload), parentToken)
+    fun pollRemoteSignals(sessionId: String, parentToken: String, afterId: Long): JSONObject =
+        request("GET", "/v1/remote-sessions/$sessionId/signals?after=$afterId", null, parentToken)
+
     fun getRemoteSession(sessionId: String, bearer: String): JSONObject = request("GET", "/v1/remote-sessions/$sessionId", null, bearer)
 
     private fun request(method: String, path: String, body: JSONObject?, bearer: String?): JSONObject {

@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var shareLocationButton: Button
     private lateinit var cameraSetupButton: Button
     private lateinit var cameraTestButton: Button
+    private lateinit var remoteMediaConsentButton: Button
     private lateinit var deviceView: TextView
     private val prefs by lazy { getSharedPreferences("eyen_child", MODE_PRIVATE) }
     private val heartbeatTask = object : Runnable {
@@ -72,6 +73,7 @@ class MainActivity : Activity() {
         shareLocationButton = Button(this).apply { text = "إعداد مشاركة الموقع المستمرة"; visibility = View.GONE }
         cameraSetupButton = Button(this).apply { text = "إعداد صلاحيات الجهاز مرة واحدة" }
         cameraTestButton = Button(this).apply { text = "اختبار الكاميرا ومعاينتها"; visibility = View.GONE }
+        remoteMediaConsentButton = Button(this).apply { text = "السماح المسبق بطلبات الكاميرا والميكروفون"; visibility = View.GONE }
 
         root.addView(codeInput)
         root.addView(pairButton)
@@ -80,6 +82,7 @@ class MainActivity : Activity() {
         root.addView(cameraSetupButton)
         root.addView(shareLocationButton)
         root.addView(cameraTestButton)
+        root.addView(remoteMediaConsentButton)
         root.addView(text(
             "من هنا يمكنك منح أذونات الكاميرا والميكروفون والإشعارات مرة واحدة. الموقع المستمر له إعداد منفصل اختياري. Android يطلب موافقة نظامية جديدة عند كل جلسة مشاركة شاشة، وقد يقيّد تشغيل الكاميرا والميكروفون من الخلفية.",
             13f, Color.LTGRAY
@@ -97,6 +100,7 @@ class MainActivity : Activity() {
         pairButton.setOnClickListener { claimCode() }
         cameraSetupButton.setOnClickListener { startPermissionSetup() }
         cameraTestButton.setOnClickListener { openCameraTest() }
+        remoteMediaConsentButton.setOnClickListener { toggleRemoteMediaConsent() }
         shareLocationButton.setOnClickListener {
             if (prefs.getBoolean("continuous_location_enabled", false)) stopContinuousLocation() else confirmLocationShare()
         }
@@ -122,6 +126,14 @@ class MainActivity : Activity() {
                 if (prefs.getString("last_remote_prompt_id", null) == id) return@execute
                 prefs.edit().putString("last_remote_prompt_id", id).apply()
                 val mode = session.optString("mode")
+                val mediaPreapproved = prefs.getBoolean("remote_media_preapproved", false) &&
+                    (mode == "camera" || mode == "audio") &&
+                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+                    (mode != "camera" || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+                if (mediaPreapproved) {
+                    sendRemoteDecision(id, "approved", mode)
+                    return@execute
+                }
                 runOnUiThread {
                     val label = when (mode) { "camera" -> "الكاميرا"; "audio" -> "الميكروفون"; "screen" -> "مشاركة الشاشة"; else -> "ميزة الجهاز" }
                     AlertDialog.Builder(this)
@@ -225,6 +237,8 @@ class MainActivity : Activity() {
         pairButton.visibility = View.GONE
         shareLocationButton.visibility = View.VISIBLE
         cameraTestButton.visibility = View.VISIBLE
+        remoteMediaConsentButton.visibility = View.VISIBLE
+        updateRemoteMediaConsentButton()
         updateLocationButton()
         updateCameraSetupButton()
         val model = prefs.getString("device_name", "جهاز الطفل") ?: "جهاز الطفل"
@@ -261,7 +275,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("إعداد صلاحيات جهاز الطفل")
-            .setMessage("بموافقتك، سيُسمح لتطبيق عين باستخدام الكاميرا والميكروفون عند بدء جلسة معلنة، وإظهار إشعارات حالة التشغيل. منح الأذونات لا يشغّل الكاميرا أو الميكروفون تلقائيًا. يمكنك سحب أي إذن لاحقًا من إعدادات Android. مشاركة الشاشة تتطلب موافقة نظامية جديدة لكل جلسة.")
+            .setMessage("بموافقتك، سيُسمح لتطبيق عين باستخدام الكاميرا والميكروفون عند طلب ولي الأمر دون نافذة موافقة داخلية متكررة. سيظل إشعار طلب الجلسة ظاهرًا، ولن يبدأ البث إلا بعد فتح إشعار الطلب، وستظهر مؤشرات Android أثناء الاستخدام. يمكنك إلغاء السماح المسبق من داخل التطبيق أو سحب أذونات Android. مشاركة الشاشة لها موافقة نظامية جديدة لكل جلسة.")
             .setNegativeButton("ليس الآن", null)
             .setPositiveButton("موافقة ومتابعة") { _, _ ->
                 requestPermissions(requested.toTypedArray(), CAMERA_PERMISSION_REQUEST)
@@ -277,6 +291,29 @@ class MainActivity : Activity() {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         cameraSetupButton.text = if (camera && audio && notifications)
             "إعداد الصلاحيات: مكتملة" else "إعداد صلاحيات الجهاز مرة واحدة"
+    }
+
+    private fun toggleRemoteMediaConsent() {
+        if (prefs.getBoolean("remote_media_preapproved", false)) {
+            AlertDialog.Builder(this)
+                .setTitle("إيقاف السماح المسبق")
+                .setMessage("بعد الإيقاف، سيظهر طلب موافقة داخل تطبيق عين قبل كل جلسة كاميرا أو ميكروفون.")
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("إيقاف") { _, _ ->
+                    prefs.edit().putBoolean("remote_media_preapproved", false).apply()
+                    updateRemoteMediaConsentButton()
+                    statusView.text = "تم إيقاف السماح المسبق."
+                }.show()
+        } else {
+            startPermissionSetup()
+        }
+    }
+
+    private fun updateRemoteMediaConsentButton() {
+        if (!::remoteMediaConsentButton.isInitialized) return
+        remoteMediaConsentButton.text = if (prefs.getBoolean("remote_media_preapproved", false))
+            "إيقاف السماح المسبق بطلبات الكاميرا والميكروفون"
+        else "السماح المسبق بطلبات الكاميرا والميكروفون"
     }
 
     private fun claimCode() {

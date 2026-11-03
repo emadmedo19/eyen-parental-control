@@ -66,7 +66,17 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         statusView.text = when (state) {
                             "requested" -> "طلب $mode اتبعت. في انتظار موافقة الطفل..."
-                            "approved" -> "الطفل وافق على $mode. البث المباشر لم يبدأ بعد."
+                            "approved" -> {
+                                if (prefs.getString("opened_remote_session_id", null) != sessionId) {
+                                    prefs.edit().putString("opened_remote_session_id", sessionId).apply()
+                                    runOnUiThread {
+                                        startActivity(Intent(this@MainActivity, RemoteSessionActivity::class.java)
+                                            .putExtra("session_id", sessionId)
+                                            .putExtra("mode", session.optString("mode")))
+                                    }
+                                }
+                                "الطفل وافق. جاري فتح شاشة البث المباشر…"
+                            }
                             "connecting" -> "تمت الموافقة. جاري تجهيز الاتصال..."
                             "active" -> "جلسة $mode نشطة."
                             "rejected" -> "الطفل رفض طلب $mode."

@@ -24,7 +24,7 @@ class RemoteSessionActivity : Activity() {
     private var cursor = 0L
     private val pendingIce = mutableListOf<IceCandidate>()
     private var remoteDescriptionSet = false
-    private var closed = false
+    @Volatile private var closed = false
     private val egl by lazy { EglBase.create() }
     private val poll = object : Runnable {
         override fun run() {
@@ -36,16 +36,27 @@ class RemoteSessionActivity : Activity() {
                     if (signals != null) for (i in 0 until signals.length()) {
                         val item = signals.optJSONObject(i) ?: continue
                         cursor = maxOf(cursor, item.optLong("id", cursor))
-                        when (item.optString("signal_type")) {
-                            "answer" -> acceptAnswer(item.optJSONObject("payload") ?: JSONObject())
-                            "ice" -> addIce(item.optJSONObject("payload") ?: JSONObject())
-                            "hangup" -> runOnUiThread { finishSession("انتهت الجلسة من جهاز الطفل.") }
+                        runOnUiThread {
+                            if (closed) return@runOnUiThread
+                            when (item.optString("signal_type")) {
+                                "answer" -> acceptAnswer(item.optJSONObject("payload") ?: JSONObject())
+                                "ice" -> addIce(item.optJSONObject("payload") ?: JSONObject())
+                                "hangup" -> finishSession("انتهت الجلسة من جهاز الطفل.")
+                            }
                         }
                     }
                 } catch (e: Exception) {
-                android.util.Log.w("EyenRTC", "Signal polling failed", e)
-                runOnUiThread { if (!closed) status.text = "تعذر استقبال إشارات الجلسة: ${e.message ?: "خطأ شبكة"}" }
-            }
+                    android.util.Log.w("EyenRTC", "Signal polling failed", e)
+                    runOnUiThread {
+                        if (!closed) {
+                            if (e is ApiException && e.statusCode in listOf(401, 404, 409, 410)) {
+                                finishSession("انتهت الجلسة أو انتهت صلاحيتها. اطلب جلسة جديدة.")
+                            } else {
+                                status.text = "تعذر استقبال إشارات الجلسة: ${e.message ?: "خطأ شبكة"}"
+                            }
+                        }
+                    }
+                }
                 if (!closed) handler.postDelayed(this, 900L)
             }
         }
@@ -158,10 +169,13 @@ class RemoteSessionActivity : Activity() {
         peer?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription?) {}
             override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                pendingIce.forEach { peer?.addIceCandidate(it) }
-                pendingIce.clear()
-                runOnUiThread { status.text = "تم تبادل بيانات الاتصال. في انتظار الوسائط…" }
+                runOnUiThread {
+                    if (closed) return@runOnUiThread
+                    remoteDescriptionSet = true
+                    pendingIce.forEach { peer?.addIceCandidate(it) }
+                    pendingIce.clear()
+                    status.text = "تم تبادل بيانات الاتصال. في انتظار الوسائط…"
+                }
             }
             override fun onCreateFailure(e: String?) { fail(e) }
             override fun onSetFailure(e: String?) { fail(e) }
@@ -177,6 +191,7 @@ class RemoteSessionActivity : Activity() {
     }
 
     private fun sendSignal(type: String, payload: JSONObject) {
+        if (executor.isShutdown || (closed && type != "hangup")) return
         executor.execute {
             try { ApiClient.sendRemoteSignal(sessionId, token, type, payload) }
             catch (e: Exception) {
@@ -201,6 +216,7 @@ class RemoteSessionActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (!closed && sessionId.isNotBlank() && token.isNotBlank()) sendSignal("hangup", JSONObject())
         closed = true
         handler.removeCallbacksAndMessages(null)
         peer?.close(); peer?.dispose()

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.ResultReceiver
 import android.media.projection.MediaProjectionManager
 import android.media.projection.MediaProjection
 import android.content.Intent
@@ -24,6 +25,7 @@ class RemoteSessionActivity : Activity() {
     private lateinit var factory: PeerConnectionFactory
     private var peer: PeerConnection? = null
     private var capturer: CameraVideoCapturer? = null
+    private var cameraHelper: SurfaceTextureHelper? = null
     private var videoSource: VideoSource? = null
     private var audioSource: AudioSource? = null
     private var screenCapturer: ScreenCapturerAndroid? = null
@@ -35,7 +37,9 @@ class RemoteSessionActivity : Activity() {
     private var token = ""
     private var mode = "camera"
     private var cursor = 0L
-    private var closed = false
+    @Volatile private var closed = false
+    private var rtcStarted = false
+    private var mediaReleased = false
     private val egl by lazy { EglBase.create() }
     private val poll = object : Runnable {
         override fun run() {
@@ -47,14 +51,26 @@ class RemoteSessionActivity : Activity() {
                     if (signals != null) for (i in 0 until signals.length()) {
                         val item = signals.optJSONObject(i) ?: continue
                         cursor = maxOf(cursor, item.optLong("id", cursor))
-                        when (item.optString("signal_type")) {
-                            "offer" -> acceptOffer(item.optJSONObject("payload") ?: JSONObject())
-                            "ice" -> addIce(item.optJSONObject("payload") ?: JSONObject())
-                            "hangup" -> runOnUiThread { finishSession("أنهى ولي الأمر الجلسة.") }
+                        runOnUiThread {
+                            if (closed) return@runOnUiThread
+                            when (item.optString("signal_type")) {
+                                "offer" -> acceptOffer(item.optJSONObject("payload") ?: JSONObject())
+                                "ice" -> addIce(item.optJSONObject("payload") ?: JSONObject())
+                                "hangup" -> finishSession("أنهى ولي الأمر الجلسة.")
+                            }
                         }
                     }
                 } catch (e: Exception) {
                     android.util.Log.w("EyenRTC", "Signal polling failed", e)
+                    runOnUiThread {
+                        if (!closed) {
+                            if (e is ApiException && e.statusCode in listOf(401, 404, 409, 410)) {
+                                finishSession("انتهت الجلسة أو انتهت صلاحيتها. اطلب جلسة جديدة.")
+                            } else {
+                                status.text = "تعذر استقبال إشارات الجلسة: ${e.message ?: "خطأ شبكة"}"
+                            }
+                        }
+                    }
                 }
                 if (!closed) handler.postDelayed(this, 900L)
             }
@@ -91,29 +107,43 @@ class RemoteSessionActivity : Activity() {
         }
         if ((mode == "camera" && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) ||
             ((mode == "camera" || mode == "audio") && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)) {
-            showMessage("لم تُمنح أذونات الكاميرا والميكروفون. لم يبدأ أي بث.")
-            finishSession("لم تبدأ المشاركة لعدم توفر الأذونات.")
+            val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+            if (mode == "camera") permissions.add(Manifest.permission.CAMERA)
+            requestPermissions(permissions.toTypedArray(), MEDIA_PERMISSION_REQUEST)
             return
         }
+        startMediaService()
+    }
+
+    private fun startMediaService() {
         try {
             val mediaService = Intent(this, RemoteMediaForegroundService::class.java)
                 .putExtra(RemoteMediaForegroundService.EXTRA_MODE, mode)
+                .putExtra(RemoteMediaForegroundService.EXTRA_READY_RECEIVER, readyReceiver())
             if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(mediaService) else startService(mediaService)
         } catch (error: Exception) {
-            showMessage("تعذر بدء إشعار حماية الجلسة: ${error.message}")
-            return
+            finishSession("تعذر بدء إشعار حماية الجلسة: ${error.message}")
         }
-        startRtc()
     }
 
-    private fun showMessage(message: String) {
-        setContentView(TextView(this).apply {
-            text = "$message\n\nيمكنك الرجوع للتطبيق بأمان."
-            textSize = 18f; gravity = Gravity.CENTER; setPadding(24,24,24,24)
-        })
+    private fun readyReceiver() = object : ResultReceiver(handler) {
+        override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
+            if (!closed && !isFinishing && !rtcStarted) startRtc()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != MEDIA_PERMISSION_REQUEST || closed) return
+        val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val cameraGranted = mode != "camera" || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (audioGranted && cameraGranted) startMediaService()
+        else finishSession("لم تبدأ المشاركة لعدم منح أذونات الكاميرا أو الميكروفون.")
     }
 
     private fun startRtc() {
+        if (closed || rtcStarted) return
+        rtcStarted = true
         try {
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(this).createInitializationOptions()
@@ -151,18 +181,19 @@ class RemoteSessionActivity : Activity() {
             if (mode == "camera" || mode == "audio") addAudioTrack()
             handler.post(poll)
         } catch (e: Exception) {
-            runOnUiThread { status.text = "تعذر تهيئة البث: ${e.message}" }
+            finishSession("تعذر تهيئة البث: ${e.message}")
         }
     }
 
     private fun addCameraTrack() {
         val enumerator = Camera2Enumerator(this)
         val name = enumerator.deviceNames.firstOrNull { enumerator.isFrontFacing(it) }
-            ?: enumerator.deviceNames.firstOrNull() ?: return
-        capturer = enumerator.createCapturer(name, null)
+            ?: enumerator.deviceNames.firstOrNull() ?: error("لا توجد كاميرا متاحة")
+        capturer = enumerator.createCapturer(name, null) ?: error("تعذر فتح الكاميرا")
         val source = factory.createVideoSource(false)
         videoSource = source
         val helper = SurfaceTextureHelper.create("EyenCamera", egl.eglBaseContext)
+        cameraHelper = helper
         capturer?.initialize(helper, this, source.capturerObserver)
         capturer?.startCapture(640, 480, 20)
         val track = factory.createVideoTrack("eyen_video", source)
@@ -177,20 +208,18 @@ class RemoteSessionActivity : Activity() {
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != SCREEN_CAPTURE_REQUEST) return
+        if (requestCode != SCREEN_CAPTURE_REQUEST || closed) return
         if (resultCode != RESULT_OK || data == null) {
-            showMessage("لم تتم الموافقة على مشاركة الشاشة؛ لم يبدأ أي بث.")
             finishSession("رفضت موافقة مشاركة الشاشة.")
             return
         }
         screenPermissionData = data
         try {
             val service = Intent(this, MediaProjectionForegroundService::class.java)
+                .putExtra(MediaProjectionForegroundService.EXTRA_READY_RECEIVER, readyReceiver())
             if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
-            startRtc()
         } catch (error: Exception) {
-            showMessage("تعذر بدء خدمة مشاركة الشاشة: ${error.message}")
-            finishSession("تعذر بدء خدمة مشاركة الشاشة.")
+            finishSession("تعذر بدء خدمة مشاركة الشاشة: ${error.message}")
         }
     }
 
@@ -224,25 +253,28 @@ class RemoteSessionActivity : Activity() {
         peer?.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(d: SessionDescription?) {}
             override fun onSetSuccess() {
-                remoteDescriptionSet = true
-                pendingIce.forEach { peer?.addIceCandidate(it) }
-                pendingIce.clear()
-                peer?.createAnswer(object : SdpObserver {
-                    override fun onCreateSuccess(answer: SessionDescription?) {
-                        if (answer == null) return
-                        peer?.setLocalDescription(object : SdpObserver {
-                            override fun onCreateSuccess(d: SessionDescription?) {}
-                            override fun onSetSuccess() {
-                                sendSignal("answer", JSONObject().put("type", "answer").put("sdp", answer.description))
-                            }
-                            override fun onCreateFailure(e: String?) { fail(e) }
-                            override fun onSetFailure(e: String?) { fail(e) }
-                        }, answer)
-                    }
-                    override fun onSetSuccess() {}
-                    override fun onCreateFailure(e: String?) { fail(e) }
-                    override fun onSetFailure(e: String?) { fail(e) }
-                }, MediaConstraints())
+                runOnUiThread {
+                    if (closed) return@runOnUiThread
+                    remoteDescriptionSet = true
+                    pendingIce.forEach { peer?.addIceCandidate(it) }
+                    pendingIce.clear()
+                    peer?.createAnswer(object : SdpObserver {
+                        override fun onCreateSuccess(answer: SessionDescription?) {
+                            if (answer == null) return
+                            peer?.setLocalDescription(object : SdpObserver {
+                                override fun onCreateSuccess(d: SessionDescription?) {}
+                                override fun onSetSuccess() {
+                                    sendSignal("answer", JSONObject().put("type", "answer").put("sdp", answer.description))
+                                }
+                                override fun onCreateFailure(e: String?) { fail(e) }
+                                override fun onSetFailure(e: String?) { fail(e) }
+                            }, answer)
+                        }
+                        override fun onSetSuccess() {}
+                        override fun onCreateFailure(e: String?) { fail(e) }
+                        override fun onSetFailure(e: String?) { fail(e) }
+                    }, MediaConstraints())
+                }
             }
             override fun onCreateFailure(e: String?) { fail(e) }
             override fun onSetFailure(e: String?) { fail(e) }
@@ -258,6 +290,7 @@ class RemoteSessionActivity : Activity() {
     }
 
     private fun sendSignal(type: String, payload: JSONObject) {
+        if (executor.isShutdown || (closed && type != "hangup")) return
         executor.execute {
             try { ApiClient.sendRemoteSignal(sessionId, token, type, payload) }
             catch (e: Exception) { android.util.Log.e("EyenRTC", "Signal send failed", e) }
@@ -273,33 +306,40 @@ class RemoteSessionActivity : Activity() {
         closed = true
         handler.removeCallbacksAndMessages(null)
         sendSignal("hangup", JSONObject())
+        releaseMedia()
+        status.text = message
+        handler.postDelayed({ finish() }, 1500)
+    }
+
+    private fun releaseMedia() {
+        if (mediaReleased) return
+        mediaReleased = true
         try { capturer?.stopCapture() } catch (_: Exception) {}
         try { screenCapturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose(); capturer = null
         screenCapturer?.dispose(); screenCapturer = null
         screenHelper?.dispose(); screenHelper = null
+        cameraHelper?.dispose(); cameraHelper = null
         stopService(Intent(this, MediaProjectionForegroundService::class.java))
         stopService(Intent(this, RemoteMediaForegroundService::class.java))
         peer?.close(); peer?.dispose(); peer = null
         videoSource?.dispose(); audioSource?.dispose()
-        status.text = message
-        handler.postDelayed({ finish() }, 700)
+        videoSource = null; audioSource = null
     }
 
     override fun onDestroy() {
+        if (!closed && sessionId.isNotBlank() && token.isNotBlank()) sendSignal("hangup", JSONObject())
         closed = true
         handler.removeCallbacksAndMessages(null)
-        try { capturer?.stopCapture() } catch (_: Exception) {}
-        try { screenCapturer?.stopCapture() } catch (_: Exception) {}
-        capturer?.dispose(); screenCapturer?.dispose(); screenHelper?.dispose()
-        peer?.dispose(); videoSource?.dispose(); audioSource?.dispose()
-        stopService(Intent(this, MediaProjectionForegroundService::class.java))
-        stopService(Intent(this, RemoteMediaForegroundService::class.java))
+        releaseMedia()
         if (::factory.isInitialized) factory.dispose()
         egl.release()
         executor.shutdown()
         super.onDestroy()
     }
 
-    companion object { private const val SCREEN_CAPTURE_REQUEST = 7412 }
+    companion object {
+        private const val SCREEN_CAPTURE_REQUEST = 7412
+        private const val MEDIA_PERMISSION_REQUEST = 7413
+    }
 }

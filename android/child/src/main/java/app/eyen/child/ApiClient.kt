@@ -4,6 +4,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+internal class ApiException(val statusCode: Int, message: String) : IllegalStateException(message)
+
 internal object ApiClient {
     private const val BASE_URL = "https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api"
     private const val API_KEY = "sb_publishable_KMbb4z0cX2jBw4ep3Rwm2w_l4M5jKft"
@@ -54,7 +56,7 @@ internal object ApiClient {
             val payload = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             val json = if (payload.isBlank()) JSONObject() else JSONObject(payload)
             if (connection.responseCode !in 200..299) {
-                throw IllegalStateException(json.optString("error", "تعذر الاتصال بالخادم"))
+                throw ApiException(connection.responseCode, json.optString("error", "تعذر الاتصال بالخادم"))
             }
             return json
         } finally {

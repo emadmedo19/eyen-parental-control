@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.ResultReceiver
 
 class MediaProjectionForegroundService : Service() {
     override fun onCreate() {
@@ -32,10 +33,18 @@ class MediaProjectionForegroundService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        @Suppress("DEPRECATION")
+        val ready = intent?.getParcelableExtra<ResultReceiver>(EXTRA_READY_RECEIVER)
+        // onCreate has already called startForeground. Only now may the activity
+        // obtain a MediaProjection on Android 14 and later.
+        ready?.send(0, null)
+        return START_NOT_STICKY
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        const val EXTRA_READY_RECEIVER = "eyen_screen_ready"
         private const val CHANNEL_ID = "eyen_screen_capture"
         private const val NOTIFICATION_ID = 7402
     }

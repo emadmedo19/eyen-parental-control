@@ -52,3 +52,7 @@ alter table public.eyen_webrtc_signals enable row level security;
 revoke all on public.eyen_user_devices from anon, authenticated;
 revoke all on public.eyen_remote_sessions from anon, authenticated;
 revoke all on public.eyen_webrtc_signals from anon, authenticated;
+
+alter table public.pairing_sessions add column if not exists fcm_token text;
+grant all on public.eyen_user_devices, public.eyen_remote_sessions, public.eyen_webrtc_signals to service_role;
+grant usage, select on sequence public.eyen_webrtc_signals_id_seq to service_role;

@@ -6,8 +6,8 @@ import java.net.URL
 
 internal object ApiClient {
     // Dedicated Eyen Supabase Edge Function endpoint.
-    private const val BASE_URL = "https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api"
-    private const val API_KEY = "sb_publishable_KMbb4z0cX2jBw4ep3Rwm2w_l4M5jKft"
+    private const val BASE_URL = "https://aggzyhtlnlazmpxbczbd.supabase.co/functions/v1/eyen-api"
+    private const val API_KEY = "sb_publishable_Y1n87MhlPCdG200J_UU5BA_s7nCsEhf"
 
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path, body, null)
     fun get(path: String, bearer: String): JSONObject = request("GET", path, null, bearer)

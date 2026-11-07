@@ -1,0 +1,5 @@
+<resources>
+    <item name="choose_parent" type="id" />
+    <item name="choose_child" type="id" />
+    <item name="repair_device" type="id" />
+</resources>

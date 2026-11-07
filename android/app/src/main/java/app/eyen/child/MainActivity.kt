@@ -29,9 +29,11 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
+    private var foreground = false
     private lateinit var codeInput: EditText
     private lateinit var statusView: TextView
     private lateinit var pairButton: Button
+    private lateinit var repairButton: Button
     private lateinit var shareLocationButton: Button
     private lateinit var cameraSetupButton: Button
     private lateinit var cameraTestButton: Button
@@ -46,9 +48,17 @@ class MainActivity : Activity() {
             }
         }
     }
+    private val remoteRequestPolling = object : Runnable {
+        override fun run() {
+            if (!prefs.contains("child_token")) return
+            checkPendingRemoteSession()
+            handler.postDelayed(this, 3000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!DeviceRole.ensure(this, DeviceRole.CHILD)) return
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -57,6 +67,10 @@ class MainActivity : Activity() {
         }
         root.addView(text("عين", 32f, Color.WHITE))
         root.addView(text("ربط جهاز الطفل", 18f, Color.LTGRAY))
+        root.addView(Button(this).apply {
+            text = "تغيير نوع الجهاز"
+            setOnClickListener { DeviceRole.showPicker(this@MainActivity) }
+        })
 
         codeInput = EditText(this).apply {
             hint = "أدخل كود الربط المكوّن من 6 أرقام"
@@ -68,6 +82,24 @@ class MainActivity : Activity() {
             filters = arrayOf(android.text.InputFilter.LengthFilter(6))
         }
         pairButton = Button(this).apply { text = "ربط الجهاز" }
+        repairButton = Button(this).apply {
+            id = R.id.repair_device
+            text = "ربط الجهاز بكود جديد"
+            visibility = View.GONE
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("إعادة ربط الجهاز")
+                    .setMessage("سيتم إيقاف مشاركة الموقع وإزالة الربط المحفوظ على هذا الهاتف، ثم يمكنك إدخال كود ولي الأمر الجديد.")
+                    .setNegativeButton("إلغاء", null)
+                    .setPositiveButton("إعادة الربط") { _, _ ->
+                        this@MainActivity.handler.removeCallbacks(heartbeatTask)
+                        this@MainActivity.handler.removeCallbacks(remoteRequestPolling)
+                        stopService(Intent(this@MainActivity, LocationSharingService::class.java))
+                        prefs.edit().clear().apply()
+                        recreate()
+                    }.show()
+            }
+        }
         statusView = text("اطلب كود الربط من ولي الأمر. الكود صالح لمدة 5 دقائق.", 15f, Color.LTGRAY)
         deviceView = text("", 14f, Color.WHITE)
         shareLocationButton = Button(this).apply { text = "إعداد مشاركة الموقع المستمرة"; visibility = View.GONE }
@@ -79,6 +111,7 @@ class MainActivity : Activity() {
         root.addView(pairButton)
         root.addView(statusView)
         root.addView(deviceView)
+        root.addView(repairButton)
         root.addView(cameraSetupButton)
         root.addView(shareLocationButton)
         root.addView(cameraTestButton)
@@ -111,6 +144,7 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (!DeviceRole.ensure(this, DeviceRole.CHILD)) return
         setIntent(intent)
         handleLocationRequestIntent(intent)
         if (prefs.contains("child_token") && intent.getStringExtra(EXTRA_REMOTE_SESSION_ID) != null) {
@@ -124,20 +158,23 @@ class MainActivity : Activity() {
         val token = prefs.getString("child_token", null) ?: return
         executor.execute {
             try {
-                val session = ApiClient.pendingRemoteSession(deviceId, token).optJSONObject("session") ?: return@execute
-                val id = session.optString("id")
-                if (prefs.getString("last_remote_prompt_id", null) == id) return@execute
-                prefs.edit().putString("last_remote_prompt_id", id).apply()
-                val mode = session.optString("mode")
-                val mediaPreapproved = prefs.getBoolean("remote_media_preapproved", false) &&
-                    (mode == "camera" || mode == "audio") &&
-                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
-                    (mode != "camera" || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-                if (mediaPreapproved) {
-                    sendRemoteDecision(id, "approved", mode)
-                    return@execute
-                }
+                val session = ApiClient.pendingRemoteSession(deviceId, token).optJSONObject("session")
+                if (session == null) return@execute
                 runOnUiThread {
+                    if (!foreground || DeviceRole.current(this) != DeviceRole.CHILD) return@runOnUiThread
+                    if (prefs.getString("child_token", null) != token) return@runOnUiThread
+                    val id = session.optString("id")
+                    if (prefs.getString("last_remote_prompt_id", null) == id) return@runOnUiThread
+                    prefs.edit().putString("last_remote_prompt_id", id).apply()
+                    val mode = session.optString("mode")
+                    val mediaPreapproved = prefs.getBoolean("remote_media_preapproved", false) &&
+                        (mode == "camera" || mode == "audio") &&
+                        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+                        (mode != "camera" || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+                    if (mediaPreapproved) {
+                        sendRemoteDecision(id, "approved", mode)
+                        return@runOnUiThread
+                    }
                     val label = when (mode) { "camera" -> "الكاميرا"; "audio" -> "الميكروفون"; "screen" -> "مشاركة الشاشة"; else -> "ميزة الجهاز" }
                     AlertDialog.Builder(this)
                         .setTitle("طلب من ولي الأمر")
@@ -159,6 +196,7 @@ class MainActivity : Activity() {
             try {
                 ApiClient.decideRemoteSession(id, token, decision)
                 runOnUiThread {
+                    if (!foreground || DeviceRole.current(this) != DeviceRole.CHILD) return@runOnUiThread
                     statusView.text = if (decision == "approved") {
                         "تمت الموافقة. افتح جلسة المشاركة الظاهرة الآن."
                     } else "تم رفض طلب ولي الأمر."
@@ -236,6 +274,7 @@ class MainActivity : Activity() {
     }
 
     private fun showPairedState() {
+        repairButton.visibility = View.VISIBLE
         codeInput.visibility = View.GONE
         pairButton.visibility = View.GONE
         shareLocationButton.visibility = View.VISIBLE
@@ -340,8 +379,12 @@ class MainActivity : Activity() {
                     .apply()
                 runOnUiThread {
                     showPairedState()
+                    if (!foreground || DeviceRole.current(this) != DeviceRole.CHILD) return@runOnUiThread
                     statusView.text = "تم الربط بنجاح. يمكنك إرسال موقعك الحالي بموافقتك."
-                    sendHeartbeat()
+                    handler.removeCallbacks(heartbeatTask)
+                    handler.post(heartbeatTask)
+                    handler.removeCallbacks(remoteRequestPolling)
+                    handler.post(remoteRequestPolling)
                     FcmTokenRegistrar.refresh(this@MainActivity)
                 }
             } catch (error: Exception) {
@@ -355,6 +398,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (isFinishing) return
+        foreground = true
         if (prefs.getBoolean("awaiting_background_location", false)) {
             if (hasBackgroundLocation()) {
                 prefs.edit().remove("awaiting_background_location").putBoolean("continuous_location_enabled", true).apply()
@@ -365,7 +410,8 @@ class MainActivity : Activity() {
             updateLocationButton()
         }
         if (prefs.contains("child_token")) {
-            checkPendingRemoteSession()
+            handler.removeCallbacks(remoteRequestPolling)
+            handler.post(remoteRequestPolling)
             updateCameraSetupButton()
             FcmTokenRegistrar.refresh(this)
             handler.removeCallbacks(heartbeatTask)
@@ -374,6 +420,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        foreground = false
+        handler.removeCallbacks(remoteRequestPolling)
         handler.removeCallbacks(heartbeatTask)
         super.onPause()
     }
@@ -568,6 +616,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(remoteRequestPolling)
         handler.removeCallbacks(heartbeatTask)
         executor.shutdown()
         super.onDestroy()

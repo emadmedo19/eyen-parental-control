@@ -1,8 +1,12 @@
 # Eyen architecture
 
 ## Components
-1. Parent app: paired-device dashboard, status refresh, and explicit parent actions.
-2. Child app: pairing, foreground status heartbeat, and consent-based location sharing through a visible Android location foreground service.
+The single `android/app` module produces one APK with a persisted role choice.
+Parent and child credentials use separate preference stores. The existing
+`app.eyen.child` application ID and Firebase registration are preserved.
+
+1. Parent role: paired-device dashboard, status refresh, and explicit parent actions.
+2. Child role: pairing, foreground status heartbeat, and consent-based location sharing through a visible Android location foreground service.
 3. Supabase: dedicated PostgreSQL database and Edge Function API for pairing and device status.
 4. Future WebRTC layer: peer-to-peer sessions where possible, TURN relay only when required.
 

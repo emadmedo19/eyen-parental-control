@@ -1,6 +1,6 @@
 # Live session startup fixes
 
-The parent and child applications both need `ACCESS_NETWORK_STATE` for WebRTC's
+Both roles in the unified application need `ACCESS_NETWORK_STATE` for WebRTC's
 network monitor and `MODIFY_AUDIO_SETTINGS` for its audio device module. The
 WebRTC AAR does not supply these permissions through manifest merging.
 
@@ -16,7 +16,11 @@ responses stop local capture, and leaving the live screen sends a hangup.
 
 ## Device verification
 
-Use both updated APKs, signed with the same release key as the installed apps.
+Install the same unified APK on both phones. Choose Parent on one phone and Child
+on the other, generate the parent code, and enter it on the child. The parent
+dashboard should enable its features automatically.
+
+Use an APK signed with the same release key to update an existing child install.
 Debug APKs have a different signing key; do not uninstall an existing release
 solely to install a debug APK, since uninstalling removes the local pairing.
 

@@ -8,6 +8,7 @@ local.properties
 
 # Build outputs
 .gradle/
+.kotlin/
 **/build/
 .idea/
 .DS_Store

@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
@@ -13,7 +15,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:label="عين - جهاز الطفل" android:allowBackup="false"
+        android:label="عين" android:allowBackup="false"
         android:usesCleartextTraffic="false">
         <service android:name=".LocationSharingService" android:exported="false" android:foregroundServiceType="location" />
         <service android:name=".MediaProjectionForegroundService" android:exported="false" android:foregroundServiceType="mediaProjection" />
@@ -25,7 +27,10 @@
         </service>
         <activity android:name=".CameraPreviewActivity" android:exported="false" />
         <activity android:name=".RemoteSessionActivity" android:exported="false" />
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name="app.eyen.parent.MainActivity" android:exported="false" />
+        <activity android:name="app.eyen.parent.RemoteSessionActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".RoleSelectionActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

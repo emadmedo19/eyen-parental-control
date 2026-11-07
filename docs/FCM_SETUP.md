@@ -4,7 +4,7 @@ The child Android app uses Firebase Cloud Messaging (FCM) only as a wake-up/noti
 
 ## Current implementation
 
-- Firebase Android config: `android/child/google-services.json`
+- Firebase Android config: `android/app/google-services.json`
 - Child package: `app.eyen.child`
 - FCM token is registered using the child's pairing bearer token.
 - Supabase stores the token in `public.pairing_sessions.fcm_token`.

@@ -18,6 +18,7 @@ class EyenFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (DeviceRole.current(this) != DeviceRole.CHILD) return
         val type = message.data["type"]
         if (type == "REMOTE_SESSION_REQUEST") {
             val sessionId = message.data["sessionId"] ?: return

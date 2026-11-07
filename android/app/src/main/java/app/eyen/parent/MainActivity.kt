@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.graphics.Color
 import android.view.Gravity
 import android.widget.Button
@@ -40,6 +41,9 @@ class MainActivity : Activity() {
     private var latestLongitude: Double? = null
     private val prefs by lazy { getSharedPreferences("eyen_parent", MODE_PRIVATE) }
     private val statusHandler = Handler(Looper.getMainLooper())
+    private var foreground = false
+    private var pairingInFlight = false
+    private val pairingPolling = Runnable { checkPairing() }
     private val statusPolling = object : Runnable {
         override fun run() {
             if (prefs.contains("child_device_id")) refreshDeviceStatus()
@@ -64,6 +68,7 @@ class MainActivity : Activity() {
                         else -> "الجلسة"
                     }
                     runOnUiThread {
+                        if (!foreground || app.eyen.child.DeviceRole.current(this@MainActivity) != app.eyen.child.DeviceRole.PARENT) return@runOnUiThread
                         statusView.text = when (state) {
                             "requested" -> "طلب $mode اتبعت. في انتظار موافقة الطفل..."
                             "approved" -> {
@@ -108,6 +113,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!app.eyen.child.DeviceRole.ensure(this, app.eyen.child.DeviceRole.PARENT)) return
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -116,6 +122,10 @@ class MainActivity : Activity() {
         }
         content.addView(text("عين", 32f, Color.WHITE))
         content.addView(text("لوحة ولي الأمر", 17f, Color.LTGRAY))
+        content.addView(Button(this).apply {
+            text = "تغيير نوع الجهاز"
+            setOnClickListener { app.eyen.child.DeviceRole.showPicker(this@MainActivity) }
+        })
         codeView = text("------", 36f, Color.WHITE)
         statusView = text("أنشئ كوداً مؤقتاً لربط جهاز الطفل", 15f, Color.LTGRAY)
         createButton = Button(this).apply { text = "إنشاء كود ربط جديد" }
@@ -169,7 +179,7 @@ class MainActivity : Activity() {
         cameraTestButton.setOnClickListener {
             android.app.AlertDialog.Builder(this)
                 .setTitle("اختبار الكاميرا")
-                .setMessage("افتح تطبيق عين على جهاز الطفل، ثم اختر «اختبار الكاميرا ومعاينتها». ستظهر الصورة على جهاز الطفل نفسه ويمكن إيقافها من زر الإيقاف. هذه معاينة محلية وليست بثًا إلى هاتف ولي الأمر؛ ربط البث المباشر هو الخطوة التالية.")
+                .setMessage("افتح تطبيق عين على جهاز الطفل، ثم اختر «اختبار الكاميرا ومعاينتها». ستظهر الصورة على جهاز الطفل نفسه ويمكن إيقافها من زر الإيقاف. هذه معاينة محلية. لبدء البث إلى هاتف ولي الأمر استخدم «طلب فتح الكاميرا» ثم وافق على جهاز الطفل.")
                 .setPositiveButton("حسنًا", null)
                 .show()
         }
@@ -188,6 +198,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        if (isFinishing) return
+        foreground = true
+        if (!prefs.contains("child_device_id") && prefs.contains("session_id")) {
+            codeView.text = prefs.getString("pairing_code", "------")
+            statusHandler.post(pairingPolling)
+        }
         if (prefs.contains("child_device_id")) {
             statusHandler.removeCallbacks(statusPolling)
             statusHandler.post(statusPolling)
@@ -199,6 +215,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        foreground = false
+        statusHandler.removeCallbacks(pairingPolling)
         statusHandler.removeCallbacks(statusPolling)
         statusHandler.removeCallbacks(remoteSessionPolling)
         super.onPause()
@@ -228,12 +246,22 @@ class MainActivity : Activity() {
                 prefs.edit()
                     .putString("session_id", result.getString("sessionId"))
                     .putString("poll_token", result.getString("pollToken"))
+                    .putString("pairing_code", result.getString("pairingCode"))
+                    .remove("child_device_id").remove("child_device_name")
+                    .remove("remote_session_id").remove("opened_remote_session_id")
                     .apply()
                 runOnUiThread {
                     codeView.text = result.getString("pairingCode")
                     statusView.text = "الكود صالح لمدة 5 دقائق. أدخله على جهاز الطفل."
                     checkButton.isEnabled = true
                     createButton.isEnabled = true
+                    refreshButton.isEnabled = false
+                    requestLocationButton.isEnabled = false
+                    cameraRequestButton.isEnabled = false
+                    audioRequestButton.isEnabled = false
+                    screenRequestButton.isEnabled = false
+                    statusHandler.removeCallbacks(pairingPolling)
+                    if (foreground) statusHandler.post(pairingPolling)
                 }
             } catch (error: Exception) {
                 showError(error)
@@ -242,8 +270,11 @@ class MainActivity : Activity() {
     }
 
     private fun checkPairing() {
+        if (pairingInFlight) return
         val sessionId = prefs.getString("session_id", null) ?: return
         val token = prefs.getString("poll_token", null) ?: return
+        pairingInFlight = true
+        statusHandler.removeCallbacks(pairingPolling)
         busy(true)
         executor.execute {
             try {
@@ -263,6 +294,7 @@ class MainActivity : Activity() {
                 }
                 val snapshot = deviceStatus
                 runOnUiThread {
+                    pairingInFlight = false
                     statusView.text = when (result.optString("status")) {
                         "paired" -> "تم الربط بنجاح مع: " + result.optString("childDeviceName", "جهاز الطفل")
                         "expired" -> "انتهت صلاحية الكود. أنشئ كوداً جديداً."
@@ -276,8 +308,18 @@ class MainActivity : Activity() {
                     cameraRequestButton.isEnabled = prefs.contains("child_device_id")
                     audioRequestButton.isEnabled = prefs.contains("child_device_id")
                     screenRequestButton.isEnabled = prefs.contains("child_device_id")
+                    if (result.optString("status") == "waiting" && foreground) {
+                        statusHandler.postDelayed(pairingPolling, 2500L)
+                    } else if (result.optString("status") == "paired") {
+                        statusHandler.removeCallbacks(statusPolling)
+                        if (foreground) statusHandler.postDelayed(statusPolling, 60_000L)
+                    }
                 }
             } catch (error: Exception) {
+                runOnUiThread {
+                    pairingInFlight = false
+                    if (foreground) statusHandler.postDelayed(pairingPolling, 5000L)
+                }
                 showError(error)
             }
         }

@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.ResultReceiver
 
 class RemoteMediaForegroundService : Service() {
     override fun onCreate() {
@@ -44,6 +45,9 @@ class RemoteMediaForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        @Suppress("DEPRECATION")
+        val ready = intent?.getParcelableExtra<ResultReceiver>(EXTRA_READY_RECEIVER)
+        ready?.send(0, null)
         return START_NOT_STICKY
     }
 
@@ -51,6 +55,7 @@ class RemoteMediaForegroundService : Service() {
 
     companion object {
         const val EXTRA_MODE = "eyen_media_mode"
+        const val EXTRA_READY_RECEIVER = "eyen_media_ready"
         private const val CHANNEL_ID = "eyen_remote_media"
         private const val NOTIFICATION_ID = 7403
     }

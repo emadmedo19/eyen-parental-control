@@ -12,6 +12,7 @@ internal object FcmTokenRegistrar {
     }
 
     fun upload(context: Context, fcmToken: String) {
+        if (DeviceRole.current(context) != DeviceRole.CHILD) return
         val prefs = context.getSharedPreferences("eyen_child", Context.MODE_PRIVATE)
         val deviceId = prefs.getString("child_device_id", null) ?: return
         val childToken = prefs.getString("child_token", null) ?: return

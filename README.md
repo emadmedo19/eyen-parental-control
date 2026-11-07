@@ -1,40 +1,61 @@
 # Eyen — عين
-Android-first parental safety project.
 
-## Current milestone: device pairing and status dashboard
-The Android parent and child apps are connected to a dedicated Supabase project.
-- Parent app requests a one-use six-digit code valid for five minutes.
-- Child app enters the code to claim the pairing session.
-- Parent can confirm pairing and see the paired device name.
-- Parent dashboard displays last-seen time, battery percentage and charging state.
-- Child sends status heartbeats once per minute while the app is open.
-- Firebase Cloud Messaging is configured in the child Android app; its FCM registration token is sent to the Eyen API and stored on the paired device record in Supabase. Push delivery and command handling are not yet enabled pending server-side FCM credentials and the consent-based command workflow.
-- Child can share a one-time current location after an in-app explanation, an explicit tap and Android runtime permission. Location is not collected in the background.
-- Parent can open the last shared location in a maps app.
-- Pairing codes and bearer secrets are stored as digests on the API, not in plaintext.
+One Android application, installed on both phones. Each installation chooses
+**Parent** or **Child**; the choice is remembered on subsequent launches.
 
-## Scope
-- Parent Android app and Child companion app.
-- Visible, consent-based live sessions for camera, microphone and screen sharing.
-- Optional location, app-usage summaries, screen-time rules and device status.
-- Remote access over the internet; local Wi-Fi is not required.
+## Pair two phones
 
-## Important Android constraints
-Camera and microphone capture must follow Android permission and foreground-service rules.
-Screen sharing uses Android MediaProjection consent. Device Owner does not bypass these controls.
-No hidden capture, stealth audio, or covert screen viewing is implemented.
+1. Install the same Eyen APK on both phones.
+2. On the parent's phone, choose «هذا هاتف ولي الأمر» and generate a pairing code.
+3. On the child's phone, choose «هذا جهاز الطفل», enter the six-digit code, and
+   tap «ربط الجهاز». Codes expire after five minutes and can be claimed once.
+4. The parent screen automatically detects successful pairing and enables device
+   status, battery, location requests and media-session requests.
+5. On the child, enable optional location sharing or grant media permissions as
+   needed. An open child dashboard checks for session requests automatically.
+
+Camera and microphone sessions remain visible and stoppable on the child.
+Screen sharing also requires Android's system capture dialog for each session.
+Pairing does not bypass Android permissions or start capture automatically.
+
+«تغيير نوع الجهاز» reopens the role chooser. Switching to Parent stops this
+phone's continuous location sharing and clears previous media preapproval.
+Pairing credentials for the two roles are stored separately.
+
+## Build
+
+Use Java 17, Gradle 8.9 and Android SDK 35:
+
+```sh
+cd android
+gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+The single output is `android/app/build/outputs/apk/debug/app-debug.apk`.
+CI builds this same unified application, with a signed release artifact on
+feature-branch pushes when signing secrets and GitHub Actions billing are available.
+
+The application keeps `app.eyen.child` as its Android application ID to retain
+the existing Firebase registration. A release signed with the existing key can
+update an old child installation and retain its pairing. Old parent installations
+use a different application ID; open the unified application and pair again.
+On a previously paired child, use «ربط الجهاز بكود جديد» to confirm stopping
+sharing and enter the new parent's code.
+Debug APKs cannot update an installed release with a different signing key.
 
 ## Project layout
-- `android/parent/`: Parent Android app.
-- `android/child/`: Child companion Android app.
-- `supabase/`: Edge Function and database migrations for the dedicated Eyen project.
-- `server/`: retained Node.js API prototype; not the active deployed backend.
-- `docs/`: architecture and implementation notes.
 
-## Build status
-Device pairing has been tested successfully on a real Infinix child device and a parent device.
-The device-status dashboard and one-time location-sharing update are in the next Android build.
-This is still a development build, not a production-ready release. Camera, microphone, screen sharing,
-app-usage reporting, background services, account management and production hardening remain future work.
+- `android/app/`: unified application, role chooser, and both dashboards.
+- `android/app/src/main/java/app/eyen/parent/`: parent features.
+- `android/app/src/main/java/app/eyen/child/`: child features and role selection.
+- `supabase/`: active Edge Function API and database migrations.
+- `server/`: retained Node.js prototype, not the active backend.
+- `docs/`: architecture, backend setup and device-testing notes.
 
-See [docs/SUPABASE_BACKEND.md](docs/SUPABASE_BACKEND.md) for the active backend configuration.
+This is a development build. Both phones still need a real-device media test.
+STUN-only connections may fail on restrictive networks without TURN. The current
+backend expires signaling two minutes after a session request is created.
+Screen mode currently shares video without an audio track.
+
+See [device verification](docs/LIVE_SESSION_TESTING.md) and
+[backend setup](docs/SUPABASE_BACKEND.md).

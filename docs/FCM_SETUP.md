@@ -23,7 +23,7 @@ Create a dedicated service account in Google Cloud IAM for this Firebase project
 
 Create a JSON key for that service account, then add its full JSON contents to:
 
-Supabase Dashboard → project `wreilawyquhhbvkkgmfy` → Edge Functions → Secrets.
+Supabase Dashboard → project `aggzyhtlnlazmpxbczbd` → Edge Functions → Secrets.
 
 Never commit this key to GitHub, never put it in `google-services.json`, and never embed it in either APK. Do not send the private key in chat. If the key is ever exposed, revoke it and create a replacement.
 

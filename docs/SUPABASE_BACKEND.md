@@ -2,10 +2,10 @@
 
 The Eyen backend is hosted in a dedicated Supabase project and is separate from the Bunyan/El-Emara project.
 
-- Project ref: `wreilawyquhhbvkkgmfy`
-- Region: `eu-central-1` (Frankfurt)
+- Project ref: `aggzyhtlnlazmpxbczbd`
+- Region: `eu-west-2` (London)
 - Edge Function: `eyen-api`
-- Function URL: `https://wreilawyquhhbvkkgmfy.supabase.co/functions/v1/eyen-api`
+- Function URL: `https://aggzyhtlnlazmpxbczbd.supabase.co/functions/v1/eyen-api`
 
 ## Pairing API
 - `GET /health`
@@ -16,7 +16,7 @@ The Eyen backend is hosted in a dedicated Supabase project and is separate from 
 The function uses the project's server-side secret key only inside the Edge Function. Android contains only the public publishable key. Pairing codes, polling tokens, child tokens and rate-limit identifiers are stored as peppered SHA-256 hashes. RLS is enabled and direct anon/authenticated table access is revoked; only the service role can access these tables. Rate limiting is enforced in PostgreSQL, not process memory.
 
 ## Deployment
-The production function and database migrations are deployed to project ref `wreilawyquhhbvkkgmfy`. The migration SQL is retained in `supabase/migrations/`. The Android parent and child clients target the function URL above.
+The production function and database migrations are deployed to project ref `aggzyhtlnlazmpxbczbd`. The migration SQL is retained in `supabase/migrations/`. The Android parent and child clients target the function URL above.
 
 ## Current scope and limitations
 This milestone implements device pairing, foreground device-status heartbeats, and child-initiated one-time location sharing. It does not yet implement app-usage reporting, camera, microphone, screen-sharing, WebRTC signaling, token rotation/revocation, or full parent account authentication. Those capabilities must be added as separate, consent-based features with visible Android permissions and controls.
